@@ -1,0 +1,5 @@
+<launch>
+  <node pkg="ndt_slam" type="ndt_slam_node" name="ndt_slam" output="screen" >
+    <remap from="pointcloud" to="velodyne_points" />
+  </node>
+</launch>

@@ -9,6 +9,7 @@ class NDT_SLAM
 private:
   void callback(const sensor_msgs::PointCloud2::ConstPtr& input);
   ros::NodeHandle _nh, _private_nh;
+  ros::Subscriber _sub;
 public:
   NDT_SLAM();
   void setup(ros::NodeHandle nh, ros::NodeHandle private_nh);
