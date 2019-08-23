@@ -11,7 +11,6 @@ void NDT_SLAM::setup(ros::NodeHandle nh, ros::NodeHandle private_nh)
   _nh = nh;
   _private_nh = private_nh;
   _map_pub = _nh.advertise<sensor_msgs::PointCloud2>("ndt_map", 1);
-  _scan_pub = _nh.advertise<sensor_msgs::PointCloud2>("initial_point", 1);
   
   _initial_scan = false;
   
@@ -25,15 +24,10 @@ void NDT_SLAM::setup(ros::NodeHandle nh, ros::NodeHandle private_nh)
      !(_private_nh.getParam("tf_btol_yaw", yaw)) )
     ROS_BREAK();
   
-  Affine3f t;
-  ROS_INFO("%f, %f, %f,%f, %f, %f", x, y, z, roll, pitch, yaw);
-  t = AngleAxisf(yaw, Vector3f::UnitZ())
-      *AngleAxisf(pitch, Vector3f::UnitY())
-      *AngleAxisf(roll, Vector3f::UnitX())
-      *Translation3f(x,y,z);
-      
-  _tf_btol = t;
-  
+  _tf_btol = AngleAxisf(yaw, Vector3f::UnitZ())
+             *AngleAxisf(pitch, Vector3f::UnitY())
+             *AngleAxisf(roll, Vector3f::UnitX())
+             *Translation3f(x,y,z);
 }
 
 void NDT_SLAM::start()
@@ -58,22 +52,12 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   {
     _map += transformed_scan;
     _initial_scan = true;
-    
-    //
-    _scan_init += scan;
   }
 
   sensor_msgs::PointCloud2 map_msg;
   pcl::toROSMsg(_map, map_msg);
   map_msg.header.frame_id = "map";
   _map_pub.publish(map_msg);
-  
-  //
-  sensor_msgs::PointCloud2 scan_msg;
-  pcl::toROSMsg(_scan_init, scan_msg);
-  scan_msg.header.frame_id = "map";
-  _scan_pub.publish(scan_msg);
- 
 }
 
 

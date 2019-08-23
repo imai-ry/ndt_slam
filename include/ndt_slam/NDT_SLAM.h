@@ -19,9 +19,9 @@ private:
   void callback(const sensor_msgs::PointCloud2::ConstPtr& input);
   ros::NodeHandle _nh, _private_nh;
   ros::Subscriber _sub;
-  ros::Publisher _map_pub, _scan_pub;
+  ros::Publisher _map_pub;
   Eigen::Affine3f _tf_btol;
-  pcl::PointCloud<pcl::PointXYZI> _map, _scan_init;
+  pcl::PointCloud<pcl::PointXYZI> _map;
   bool _initial_scan;
 public:
   NDT_SLAM();
