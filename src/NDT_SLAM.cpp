@@ -58,7 +58,7 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   
   // limit distanace
   
-  // from lidar coordinate to global coordinate
+  // from lidar coordinate to base coordinate
   pcl::PointCloud<pcl::PointXYZI>::Ptr transformed_scan_ptr(new pcl::PointCloud<pcl::PointXYZI>());
   pcl::transformPointCloud(scan, *transformed_scan_ptr, _tf_btol);
   
@@ -67,6 +67,7 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   {
     *_map_ptr += *transformed_scan_ptr;
     _initial_scan = false;
+    //return;
   }
   
   // Apply voxelgrid filter
@@ -77,13 +78,13 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   voxel_grid_filter.filter(*filtered_scan_ptr); 
   
   // caluculate init guess
-  Eigen::Translation3f t(0,0,0);
+  Eigen::Translation3f t(0,0,0); //kari
   Eigen::Affine3f at;
   at = t;
   Eigen::Matrix4f init_guess = at.matrix();
  
   // NDT matching  map <=> filterd_scan 
-  pcl::PointCloud<pcl::PointXYZI>::Ptr output_cloud(new pcl::PointCloud<pcl::PointXYZI>);
+  pcl::PointCloud<pcl::PointXYZI> output_cloud;
   if(_is_first_map == true)
   {
     _ndt.setInputTarget(_map_ptr);
@@ -91,13 +92,16 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   }
   _ndt.setInputSource(filtered_scan_ptr);
   
-  _ndt.align(*output_cloud, init_guess);
+  _ndt.align(output_cloud, init_guess);
   //fitness_score = ndt.getFitnessScore();
-  //t_localizer = ndt.getFinalTransformation();
+  Eigen::Matrix4f pose_change = _ndt.getFinalTransformation();
   //has_converged = ndt.hasConverged();
   //final_num_iteration = ndt.getFinalNumIteration();
   //transformation_probability = ndt.getTransformationProbability();
+  
 
+  // add scan to map 
+  pcl::transformPointCloud(*transformed_scan_ptr, output_cloud, pose_change);
   
   // publish map
   sensor_msgs::PointCloud2 map_msg;
