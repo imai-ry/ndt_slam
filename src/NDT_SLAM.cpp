@@ -28,6 +28,14 @@ void NDT_SLAM::setup(ros::NodeHandle nh, ros::NodeHandle private_nh)
              *AngleAxisf(pitch, Vector3f::UnitY())
              *AngleAxisf(roll, Vector3f::UnitX())
              *Translation3f(x,y,z);
+             
+  // get NDT parameter
+  if(!(_private_nh.getParam("voxel_leaf_size", _voxel_leaf_size)))
+    ROS_BREAK();
+    
+  // test
+  _filter_pub = _nh.advertise<sensor_msgs::PointCloud2>("filter_cloud", 1);
+  
 }
 
 void NDT_SLAM::start()
@@ -44,19 +52,36 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   // limit distanace
   
   // from lidar coordinate to global coordinate
-  pcl::PointCloud<pcl::PointXYZI> transformed_scan;
-  pcl::transformPointCloud(scan, transformed_scan, _tf_btol);
+  pcl::PointCloud<pcl::PointXYZI>::Ptr transformed_scan_ptr(new pcl::PointCloud<pcl::PointXYZI>());
+  pcl::transformPointCloud(scan, *transformed_scan_ptr, _tf_btol);
   
   // add initial point cloud to map
   if(_initial_scan == false)
   {
-    _map += transformed_scan;
+    _map += *transformed_scan_ptr;
     _initial_scan = true;
   }
-
+  
+  // Apply voxelgrid filter
+  pcl::PointCloud<pcl::PointXYZI>::Ptr filtered_scan_ptr(new pcl::PointCloud<pcl::PointXYZI>());
+  pcl::VoxelGrid<pcl::PointXYZI> voxel_grid_filter;
+  voxel_grid_filter.setLeafSize(_voxel_leaf_size, _voxel_leaf_size, _voxel_leaf_size);
+  voxel_grid_filter.setInputCloud(transformed_scan_ptr);
+  voxel_grid_filter.filter(*filtered_scan_ptr); 
+  
+  // test (publish filtered pointcloud)
+  sensor_msgs::PointCloud2 filter_msg;
+  pcl::toROSMsg(*filtered_scan_ptr, filter_msg);
+  filter_msg.header.frame_id = "velodyne"; 
+  _filter_pub.publish(filter_msg);
+  
+  
+  // NDT matching  map <=> filterd_scan 
+  
+  // publish map
   sensor_msgs::PointCloud2 map_msg;
   pcl::toROSMsg(_map, map_msg);
-  map_msg.header.frame_id = "map";
+  map_msg.header.frame_id = "map"; // "velodyne"
   _map_pub.publish(map_msg);
 }
 

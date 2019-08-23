@@ -10,6 +10,7 @@
 #include <pcl/common/transforms.h>
 #include <pcl/io/io.h>
 #include <pcl/io/pcd_io.h>
+#include <pcl/registration/ndt.h>
 
 #include <eigen3/Eigen/Geometry>
 
@@ -23,6 +24,13 @@ private:
   Eigen::Affine3f _tf_btol;
   pcl::PointCloud<pcl::PointXYZI> _map;
   bool _initial_scan;
+  
+  // NDT parameter
+  float _voxel_leaf_size;
+  
+  // test
+  ros::Publisher _filter_pub;
+  
 public:
   NDT_SLAM();
   void setup(ros::NodeHandle nh, ros::NodeHandle private_nh);
