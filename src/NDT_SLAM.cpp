@@ -6,8 +6,34 @@ NDT_SLAM::NDT_SLAM()
 
 void NDT_SLAM::setup(ros::NodeHandle nh, ros::NodeHandle private_nh)
 {
+  using namespace Eigen;
+
   _nh = nh;
   _private_nh = private_nh;
+  _map_pub = _nh.advertise<sensor_msgs::PointCloud2>("ndt_map", 1);
+  _scan_pub = _nh.advertise<sensor_msgs::PointCloud2>("initial_point", 1);
+  
+  _initial_scan = false;
+  
+  // get transform base(global) coordinate to lidar coordinate
+  float x,y,z,roll,pitch,yaw;
+  if(!(_private_nh.getParam("tf_btol_x", x)) ||
+     !(_private_nh.getParam("tf_btol_y", y)) ||
+     !(_private_nh.getParam("tf_btol_z", z)) ||
+     !(_private_nh.getParam("tf_btol_roll", roll)) ||
+     !(_private_nh.getParam("tf_btol_pitch", pitch)) ||
+     !(_private_nh.getParam("tf_btol_yaw", yaw)) )
+    ROS_BREAK();
+  
+  Affine3f t;
+  ROS_INFO("%f, %f, %f,%f, %f, %f", x, y, z, roll, pitch, yaw);
+  t = AngleAxisf(yaw, Vector3f::UnitZ())
+      *AngleAxisf(pitch, Vector3f::UnitY())
+      *AngleAxisf(roll, Vector3f::UnitX())
+      *Translation3f(x,y,z);
+      
+  _tf_btol = t;
+  
 }
 
 void NDT_SLAM::start()
@@ -17,13 +43,37 @@ void NDT_SLAM::start()
 }
 
 void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
-{
-  ROS_INFO("get");
+{ 
+  pcl::PointCloud<pcl::PointXYZI> scan;
+  pcl::fromROSMsg(*input, scan);
+  
   // limit distanace
+  
+  // from lidar coordinate to global coordinate
+  pcl::PointCloud<pcl::PointXYZI> transformed_scan;
+  pcl::transformPointCloud(scan, transformed_scan, _tf_btol);
+  
+  // add initial point cloud to map
+  if(_initial_scan == false)
+  {
+    _map += transformed_scan;
+    _initial_scan = true;
+    
+    //
+    _scan_init += scan;
+  }
+
+  sensor_msgs::PointCloud2 map_msg;
+  pcl::toROSMsg(_map, map_msg);
+  map_msg.header.frame_id = "map";
+  _map_pub.publish(map_msg);
+  
+  //
+  sensor_msgs::PointCloud2 scan_msg;
+  pcl::toROSMsg(_scan_init, scan_msg);
+  scan_msg.header.frame_id = "map";
+  _scan_pub.publish(scan_msg);
  
-  
-  // 
-  
 }
 
 

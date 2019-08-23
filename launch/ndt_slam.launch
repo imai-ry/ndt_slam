@@ -1,5 +1,11 @@
 <launch>
   <node pkg="ndt_slam" type="ndt_slam_node" name="ndt_slam" output="screen" >
     <remap from="pointcloud" to="velodyne_points" />
+    <param name="tf_btol_x" type="double" value="0.0" />
+    <param name="tf_btol_y" type="double" value="0.0" />
+    <param name="tf_btol_z" type="double" value="0.0" />
+    <param name="tf_btol_roll" type="double" value="0.0" />
+    <param name="tf_btol_pitch" type="double" value="0.0" />
+    <param name="tf_btol_yaw" type="double" value="0.0" />
   </node>
 </launch>
