@@ -28,9 +28,6 @@ private:
   // NDT parameter
   float _voxel_leaf_size;
   
-  // test
-  ros::Publisher _filter_pub;
-  
 public:
   NDT_SLAM();
   void setup(ros::NodeHandle nh, ros::NodeHandle private_nh);

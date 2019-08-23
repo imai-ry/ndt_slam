@@ -32,9 +32,6 @@ void NDT_SLAM::setup(ros::NodeHandle nh, ros::NodeHandle private_nh)
   // get NDT parameter
   if(!(_private_nh.getParam("voxel_leaf_size", _voxel_leaf_size)))
     ROS_BREAK();
-    
-  // test
-  _filter_pub = _nh.advertise<sensor_msgs::PointCloud2>("filter_cloud", 1);
   
 }
 
@@ -68,14 +65,7 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   voxel_grid_filter.setLeafSize(_voxel_leaf_size, _voxel_leaf_size, _voxel_leaf_size);
   voxel_grid_filter.setInputCloud(transformed_scan_ptr);
   voxel_grid_filter.filter(*filtered_scan_ptr); 
-  
-  // test (publish filtered pointcloud)
-  sensor_msgs::PointCloud2 filter_msg;
-  pcl::toROSMsg(*filtered_scan_ptr, filter_msg);
-  filter_msg.header.frame_id = "velodyne"; 
-  _filter_pub.publish(filter_msg);
-  
-  
+ 
   // NDT matching  map <=> filterd_scan 
   
   // publish map
