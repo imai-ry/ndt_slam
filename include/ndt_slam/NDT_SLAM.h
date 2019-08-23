@@ -22,11 +22,17 @@ private:
   ros::Subscriber _sub;
   ros::Publisher _map_pub;
   Eigen::Affine3f _tf_btol;
-  pcl::PointCloud<pcl::PointXYZI> _map;
+  pcl::PointCloud<pcl::PointXYZI>::Ptr _map_ptr;
   bool _initial_scan;
+  bool _is_first_map;
+  pcl::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI> _ndt;
   
   // NDT parameter
   float _voxel_leaf_size;
+  float _trans_eps;
+  float _step_size;
+  float _ndt_res;
+  int   _max_iter;
   
 public:
   NDT_SLAM();

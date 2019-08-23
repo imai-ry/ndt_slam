@@ -12,7 +12,9 @@ void NDT_SLAM::setup(ros::NodeHandle nh, ros::NodeHandle private_nh)
   _private_nh = private_nh;
   _map_pub = _nh.advertise<sensor_msgs::PointCloud2>("ndt_map", 1);
   
-  _initial_scan = false;
+  _initial_scan = true;
+  _is_first_map = true;
+  _map_ptr.reset(new pcl::PointCloud<pcl::PointXYZI>());
   
   // get transform base(global) coordinate to lidar coordinate
   float x,y,z,roll,pitch,yaw;
@@ -30,15 +32,23 @@ void NDT_SLAM::setup(ros::NodeHandle nh, ros::NodeHandle private_nh)
              *Translation3f(x,y,z);
              
   // get NDT parameter
-  if(!(_private_nh.getParam("voxel_leaf_size", _voxel_leaf_size)))
+  if(!(_private_nh.getParam("voxel_leaf_size", _voxel_leaf_size)) ||
+     !(_private_nh.getParam("trans_eps", _trans_eps)) ||
+     !(_private_nh.getParam("step_size", _ndt_res)) ||
+     !(_private_nh.getParam("ndt_res", _ndt_res)) ||
+     !(_private_nh.getParam("max_iter", _max_iter)))
     ROS_BREAK();
   
+  _ndt.setTransformationEpsilon(_trans_eps);
+  _ndt.setStepSize(_step_size);
+  _ndt.setResolution(_ndt_res);
+  _ndt.setMaximumIterations(_max_iter);
 }
 
 void NDT_SLAM::start()
 {
   // register callback
-  _sub = _nh.subscribe("pointcloud", 1, &NDT_SLAM::callback, this);
+  _sub = _nh.subscribe("pointcloud", 1000, &NDT_SLAM::callback, this);
 }
 
 void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
@@ -53,10 +63,10 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   pcl::transformPointCloud(scan, *transformed_scan_ptr, _tf_btol);
   
   // add initial point cloud to map
-  if(_initial_scan == false)
+  if(_initial_scan == true)
   {
-    _map += *transformed_scan_ptr;
-    _initial_scan = true;
+    *_map_ptr += *transformed_scan_ptr;
+    _initial_scan = false;
   }
   
   // Apply voxelgrid filter
@@ -65,13 +75,34 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   voxel_grid_filter.setLeafSize(_voxel_leaf_size, _voxel_leaf_size, _voxel_leaf_size);
   voxel_grid_filter.setInputCloud(transformed_scan_ptr);
   voxel_grid_filter.filter(*filtered_scan_ptr); 
+  
+  // caluculate init guess
+  Eigen::Translation3f t(0,0,0);
+  Eigen::Affine3f at;
+  at = t;
+  Eigen::Matrix4f init_guess = at.matrix();
  
   // NDT matching  map <=> filterd_scan 
+  pcl::PointCloud<pcl::PointXYZI>::Ptr output_cloud(new pcl::PointCloud<pcl::PointXYZI>);
+  if(_is_first_map == true)
+  {
+    _ndt.setInputTarget(_map_ptr);
+    _is_first_map = false;
+  }
+  _ndt.setInputSource(filtered_scan_ptr);
+  
+  _ndt.align(*output_cloud, init_guess);
+  //fitness_score = ndt.getFitnessScore();
+  //t_localizer = ndt.getFinalTransformation();
+  //has_converged = ndt.hasConverged();
+  //final_num_iteration = ndt.getFinalNumIteration();
+  //transformation_probability = ndt.getTransformationProbability();
+
   
   // publish map
   sensor_msgs::PointCloud2 map_msg;
-  pcl::toROSMsg(_map, map_msg);
-  map_msg.header.frame_id = "map"; // "velodyne"
+  pcl::toROSMsg(*_map_ptr, map_msg);
+  map_msg.header.frame_id = "map"; // "velodyne" or "map"
   _map_pub.publish(map_msg);
 }
 
