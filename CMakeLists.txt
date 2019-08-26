@@ -3,15 +3,21 @@ project(ndt_slam)
 
 add_compile_options(-std=c++11)
 
+SET(PCL_OPENMP_PACKAGES pcl_omp_registration)
+
 find_package(catkin REQUIRED COMPONENTS
   roscpp
   sensor_msgs
   pcl_ros
   pcl_conversions
+  ${PCL_OPENMP_PACKAGES}
 )
 
 find_package(PCL REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(OpenMP REQUIRED)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 
 ###################################
 ## catkin specific configuration ##
@@ -45,7 +51,7 @@ add_library(${PROJECT_NAME}
 ## as an example, code may need to be generated before libraries
 ## either from message generation or dynamic reconfigure
 # add_dependencies(${PROJECT_NAME} ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-
+SET(CMAKE_CXX_FLAGS "-O2 -g -Wall ${CMAKE_CXX_FLAGS}")
 add_executable(${PROJECT_NAME}_node src/ndt_slam_node.cpp)
 
 ## Rename C++ executable without prefix
@@ -63,5 +69,8 @@ target_link_libraries(${PROJECT_NAME}_node
    ${PROJECT_NAME}
    ${PCL_LIBRARIES}
 )
+
+add_dependencies(${PROJECT_NAME}_node ${catkin_EXPORTED_TARGETS})
+set_target_properties(${PROJECT_NAME}_node PROPERTIES COMPILE_DEFINITIONS "USE_PCL_OPENMP")
 
 
