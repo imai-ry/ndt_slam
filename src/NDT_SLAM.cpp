@@ -16,6 +16,9 @@ void NDT_SLAM::setup(ros::NodeHandle nh, ros::NodeHandle private_nh)
   _is_first_map = true;
   _map_ptr.reset(new pcl::PointCloud<pcl::PointXYZI>());
   
+  if(!(_private_nh.getParam("map_frame_id", _map_frame_id))) 
+    ROS_BREAK();
+  
   // get transform base(global) coordinate to lidar coordinate
   float x,y,z,roll,pitch,yaw;
   if(!(_private_nh.getParam("tf_btol_x", x)) ||
@@ -98,15 +101,17 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   //has_converged = ndt.hasConverged();
   //final_num_iteration = ndt.getFinalNumIteration();
   //transformation_probability = ndt.getTransformationProbability();
+  ROS_INFO("NDT");
   
 
   // add scan to map 
   pcl::transformPointCloud(*transformed_scan_ptr, output_cloud, pose_change);
+  *_map_ptr += output_cloud;
   
   // publish map
   sensor_msgs::PointCloud2 map_msg;
   pcl::toROSMsg(*_map_ptr, map_msg);
-  map_msg.header.frame_id = "map"; // "velodyne" or "map"
+  map_msg.header.frame_id = _map_frame_id;
   _map_pub.publish(map_msg);
 }
 
