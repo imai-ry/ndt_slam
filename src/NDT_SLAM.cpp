@@ -16,6 +16,7 @@ void NDT_SLAM::setup(ros::NodeHandle nh, ros::NodeHandle private_nh)
   _is_first_map = true;
   
   _global_pose_change = Eigen::Matrix4f::Identity();
+  _previous_pose_change = Eigen::Matrix4f::Identity();
 
   _filtered_previous_cloud_ptr.reset(new pcl::PointCloud<pcl::PointXYZI>());
   
@@ -85,6 +86,7 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   // if this is first map, register it to map directly
   pcl::PointCloud<pcl::PointXYZI>::Ptr input_cloud_global_ptr(new pcl::PointCloud<pcl::PointXYZI>());
   Eigen::Matrix4f init_guess_pose_change, pose_change;
+  pose_change = Eigen::Matrix4f::Identity();
   if(_is_first_scan == true)
   {
     input_cloud_global_ptr = input_cloud_base_ptr;
@@ -114,6 +116,9 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
    
   // filter input cloud, and register it as a last getted cloud
   voxelGridFilter(input_cloud_base_ptr, _filtered_previous_cloud_ptr);
+  
+  // previous_pose_change
+  _previous_pose_change = pose_change;
 }
 
 void NDT_SLAM::voxelGridFilter(const pcl::PointCloud<pcl::PointXYZI>::Ptr &in,
@@ -127,7 +132,9 @@ void NDT_SLAM::voxelGridFilter(const pcl::PointCloud<pcl::PointXYZI>::Ptr &in,
 
 void NDT_SLAM::calucurateInitGuessPoseChange(Eigen::Matrix4f &init_guess_pose_change)
 {
-  Eigen::Translation3f t(0,0,0); //kari
+  Eigen::Translation3f t(_previous_pose_change(0,3),
+                         _previous_pose_change(1,3),
+                         _previous_pose_change(2,3));
   Eigen::Affine3f at;
   at = t;
   init_guess_pose_change = at.matrix();
@@ -138,12 +145,15 @@ void NDT_SLAM::ndt(const pcl::PointCloud<pcl::PointXYZI>::Ptr      &source,
                    const Eigen::Matrix4f                           &init_guess_pose_change,
                          Eigen::Matrix4f                           &pose_change)
 {
+  /*
   if(_is_first_map == true)
   {
     if(_method_type==0) _ndt.setInputTarget(target);
     else _omp_ndt.setInputTarget(target);
     _is_first_map = false;
   }
+  */
+  _omp_ndt.setInputTarget(target);
   
   pcl::PointCloud<pcl::PointXYZI> output_cloud;
   if(_method_type==0)
@@ -169,83 +179,6 @@ void NDT_SLAM::ndt(const pcl::PointCloud<pcl::PointXYZI>::Ptr      &source,
 }
 
 
-
-
-
-
-
-
-
-
-
-
-/*
-void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
-{ 
-  pcl::PointCloud<pcl::PointXYZI> scan;
-  pcl::fromROSMsg(*input, scan);
-  
-  // limit distanace
-  
-  // from lidar coordinate to base(robot) coordinate
-  pcl::PointCloud<pcl::PointXYZI>::Ptr transformed_scan_ptr(new pcl::PointCloud<pcl::PointXYZI>());
-  pcl::transformPointCloud(scan, *transformed_scan_ptr, _tf_btol);
-  
-  // add initial point cloud to map
-  if(_initial_scan == true)
-  {
-    *_map_ptr += *transformed_scan_ptr;
-    _initial_scan = false;
-    //return;
-  }
-  
-  // Apply voxelgrid filter
-  pcl::PointCloud<pcl::PointXYZI>::Ptr filtered_scan_ptr(new pcl::PointCloud<pcl::PointXYZI>());
-  pcl::VoxelGrid<pcl::PointXYZI> voxel_grid_filter;
-  voxel_grid_filter.setLeafSize(_voxel_leaf_size, _voxel_leaf_size, _voxel_leaf_size);
-  voxel_grid_filter.setInputCloud(transformed_scan_ptr);
-  voxel_grid_filter.filter(*filtered_scan_ptr); 
-  
-  // caluculate init guess
-  Eigen::Translation3f t(0,0,0); //kari
-  Eigen::Affine3f at;
-  at = t;
-  Eigen::Matrix4f init_guess = at.matrix();
- 
-  // NDT matching  map <=> filterd_scan 
-  pcl::PointCloud<pcl::PointXYZI> output_cloud;
-  if(_is_first_map == true)
-  {
-    if(_method_type==0) _ndt.setInputTarget(_previous_cloud_ptr);
-    else _omp_ndt.setInputTarget(_previous_cloud_ptr);
-
-    _is_first_map = false;
-  }
-  
-  Eigen::Matrix4f pose_change;
-  if(_method_type==0)
-  {
-    _ndt.setInputSource(filtered_scan_ptr);
-    _ndt.align(output_cloud, init_guess);
-    //fitness_score = ndt.getFitnessScore();
-    pose_change = _ndt.getFinalTransformation();
-    //has_converged = ndt.hasConverged();
-    //final_num_iteration = ndt.getFinalNumIteration();
-    //transformation_probability = ndt.getTransformationProbability();
-  }
-  else
-  {
-    _omp_ndt.setInputSource(filtered_scan_ptr);
-    _omp_ndt.align(output_cloud, init_guess);
-    //fitness_score = ndt.getFitnessScore();
-    pose_change = _omp_ndt.getFinalTransformation();
-    //has_converged = _omp_ndt.hasConverged();
-    //final_num_iteration = _omp_ndt.getFinalNumIteration();
-    //transformation_probability = ndt.getTransformationProbability();
-  } 
-
-}
-*/
 
 
 

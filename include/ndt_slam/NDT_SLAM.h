@@ -24,7 +24,7 @@ private:
   ros::Subscriber _sub;
   ros::Publisher _map_pub;
   Eigen::Affine3f _tf_btol;
-  Eigen::Matrix4f _global_pose_change;
+  Eigen::Matrix4f _global_pose_change, _previous_pose_change;
 
   std::string _map_frame_id;
 
