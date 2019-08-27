@@ -19,6 +19,19 @@
 class NDT_SLAM
 {
 private:
+  
+  typedef struct
+  {
+    float x;
+    float y;
+    float z;
+    float roll;
+    float pitch;
+    float yaw;
+  } Pose;
+  
+  Pose _diff_pose, _previous_pose;
+
   void callback(const sensor_msgs::PointCloud2::ConstPtr& input);
   ros::NodeHandle _nh, _private_nh;
   ros::Subscriber _sub;
@@ -31,7 +44,6 @@ private:
   
   
   Eigen::Affine3f _tf_btol, _tf_ltob;
-  Eigen::Vector3f _diff_pose, _previous_pose;
 
   std::string _map_frame_id;
 

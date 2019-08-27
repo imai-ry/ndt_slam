@@ -14,7 +14,10 @@ void NDT_SLAM::setup(ros::NodeHandle nh, ros::NodeHandle private_nh)
   
   _is_first_scan = true;
   
-  _diff_pose = Eigen::Vector3f::Zero();
+  _previous_pose.x = 0; _previous_pose.y = 0; _previous_pose.z = 0;
+  _previous_pose.roll = 0; _previous_pose.pitch = 0; _previous_pose.yaw = 0;
+  
+  
   _map_ptr.reset(new pcl::PointCloud<pcl::PointXYZI>());
   
   if(!(_private_nh.getParam("map_frame_id", _map_frame_id)) ||
@@ -96,12 +99,30 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   
   // set pose
   Eigen::Matrix4f t_base_link;
-  Eigen::Vector3f current_pose;
+  tf::Matrix3x3 mat_b;
+  Pose current_pose, ndt_pose;
   t_base_link = t_localizer * _tf_ltob.matrix();
-  current_pose(0) = t_base_link(0,3);  // x
-  current_pose(1) = t_base_link(1,3);  // y
-  current_pose(2) = t_base_link(2,3);  // z
-  _diff_pose = current_pose - _previous_pose;
+  mat_b.setValue(static_cast<double>(t_base_link(0, 0)), static_cast<double>(t_base_link(0, 1)),
+                 static_cast<double>(t_base_link(0, 2)), static_cast<double>(t_base_link(1, 0)),
+                 static_cast<double>(t_base_link(1, 1)), static_cast<double>(t_base_link(1, 2)),
+                 static_cast<double>(t_base_link(2, 0)), static_cast<double>(t_base_link(2, 1)),
+                 static_cast<double>(t_base_link(2, 2)));
+  mat_b.getRPY(ndt_pose.roll, ndt_pose.pitch, ndt_pose.yaw, 1);
+  ndt_pose.x = t_base_link(0,3);  // x
+  ndt_pose.y = t_base_link(1,3);  // y
+  ndt_pose.z = t_base_link(2,3);  // z
+  current_pose.x = ndt_pose.x;  // x
+  current_pose.y = ndt_pose.y;  // y
+  current_pose.z = ndt_pose.z;  // z
+  current_pose.roll = ndt_pose.roll;
+  current_pose.pitch = ndt_pose.pitch;  
+  current_pose.yaw = ndt_pose.yaw;  
+  _diff_pose.x = current_pose.x - _previous_pose.x;
+  _diff_pose.y = current_pose.y - _previous_pose.y;
+  _diff_pose.z = current_pose.z - _previous_pose.z;
+  _diff_pose.roll = 0;
+  _diff_pose.pitch = 0;
+  _diff_pose.yaw = calcDiffForRadian(current_pose.yaw, previous_pose.yaw);
   _previous_pose = current_pose;
   
   // register to a map & publish map
@@ -126,8 +147,9 @@ void NDT_SLAM::voxelGridFilter(const pcl::PointCloud<pcl::PointXYZI>::Ptr &in,
 
 void NDT_SLAM::calucurateInitGuess(Eigen::Matrix4f &init_guess)
 {
-  Eigen::Vector3f guess_pose;
-  guess_pose = _previous_pose + _diff_pose;
+  Pose guess_pose;
+  guess_pose.x = diff_pose_x;
+  
   Eigen::Translation3f t(guess_pose(0), guess_pose(1), guess_pose(2));
   Eigen::Affine3f at;
   at = t * _tf_btol;
