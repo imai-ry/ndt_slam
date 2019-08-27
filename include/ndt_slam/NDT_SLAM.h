@@ -23,21 +23,21 @@ private:
   ros::NodeHandle _nh, _private_nh;
   ros::Subscriber _sub;
   ros::Publisher _map_pub;
-  Eigen::Affine3f _tf_btol;
-  Eigen::Matrix4f _global_pose_change, _previous_pose_change;
-
-  std::string _map_frame_id;
-
-  bool _is_first_scan;
-  bool _is_first_map;
   
   int _method_type;
   pcl::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI> _ndt;
   pcl_omp::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI> _omp_ndt;
   float _scan_shift;
   
-  pcl::PointCloud<pcl::PointXYZI>      _map;
-  pcl::PointCloud<pcl::PointXYZI>::Ptr _filtered_previous_cloud_ptr;
+  
+  Eigen::Affine3f _tf_btol, _tf_ltob;
+  Eigen::Vector3f _diff_pose, _previous_pose;
+
+  std::string _map_frame_id;
+
+  bool _is_first_scan;
+  
+  pcl::PointCloud<pcl::PointXYZI>::Ptr _map_ptr;
   
   // NDT parameter
   float _voxel_leaf_size;
@@ -47,12 +47,13 @@ private:
   int   _max_iter;
   
   void voxelGridFilter(const pcl::PointCloud<pcl::PointXYZI>::Ptr &in,
-                             pcl::PointCloud<pcl::PointXYZI>::Ptr &out);
-  void calucurateInitGuessPoseChange(Eigen::Matrix4f &init_guess_pose_change);
+                             pcl::PointCloud<pcl::PointXYZI>::Ptr &out,
+                             float                                leaf_size);
+  void calucurateInitGuess(Eigen::Matrix4f &init_guess);
   void ndt(const pcl::PointCloud<pcl::PointXYZI>::Ptr      &source,
            const pcl::PointCloud<pcl::PointXYZI>::Ptr      &target,
-           const Eigen::Matrix4f                           &init_guess_pose_change,
-                 Eigen::Matrix4f                           &pose_change);
+           const Eigen::Matrix4f                           &init_guess,
+                 Eigen::Matrix4f                           &t_localizer);
   
 public:
   NDT_SLAM();
