@@ -11,11 +11,13 @@ void NDT_SLAM::setup(ros::NodeHandle nh, ros::NodeHandle private_nh)
   _nh = nh;
   _private_nh = private_nh;
   _map_pub = _nh.advertise<sensor_msgs::PointCloud2>("ndt_map", 1);
-  _map_pub2 = _nh.advertise<sensor_msgs::PointCloud2>("ndt_map2", 1);
   
-  _initial_scan = true;
+  _is_first_scan = true;
   _is_first_map = true;
-  _map_ptr.reset(new pcl::PointCloud<pcl::PointXYZI>());
+  
+  _global_pose_change = Eigen::Matrix4f::Identity();
+
+  _filtered_previous_cloud_ptr.reset(new pcl::PointCloud<pcl::PointXYZI>());
   
   if(!(_private_nh.getParam("map_frame_id", _map_frame_id)) ||
      !(_private_nh.getParam("scan_shift", _scan_shift))) 
@@ -60,9 +62,6 @@ void NDT_SLAM::setup(ros::NodeHandle nh, ros::NodeHandle private_nh)
     _omp_ndt.setMaximumIterations(_max_iter);
   }
   
-  //
-  _current_pose.x = 0.0; _current_pose.y = 0.0; _current_pose.z = 0.0;
-  _estimated_pose.x = 0.0; _estimated_pose.y = 0.0; _estimated_pose.z = 0.0;
 }
 
 void NDT_SLAM::start()
@@ -73,61 +72,84 @@ void NDT_SLAM::start()
 
 void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
 {
-  pcl::PointCloud<pcl::PointXYZI> scan;
-  pcl::fromROSMsg(*input, scan);
+  pcl::PointCloud<pcl::PointXYZI> input_cloud_lidar;
+  pcl::fromROSMsg(*input, input_cloud_lidar);
   
   // limit distanace
   
   // from lidar coordinate to base coordinate
-  pcl::PointCloud<pcl::PointXYZI>::Ptr transformed_scan_ptr(new pcl::PointCloud<pcl::PointXYZI>());
-  pcl::transformPointCloud(scan, *transformed_scan_ptr, _tf_btol);
+  pcl::PointCloud<pcl::PointXYZI>::Ptr input_cloud_base_ptr(new pcl::PointCloud<pcl::PointXYZI>());
+  pcl::transformPointCloud(input_cloud_lidar, *input_cloud_base_ptr, _tf_btol);
   
-  pcl::PointCloud<pcl::PointXYZI>::Ptr 
-      scan_ptr2(new pcl::PointCloud<pcl::PointXYZI>(*transformed_scan_ptr));
-  pcl::PointCloud<pcl::PointXYZI>::Ptr transformed_scan_ptr2(new pcl::PointCloud<pcl::PointXYZI>());
-  Eigen::Matrix4f tf;
-  Eigen::Affine3f affine;
-  Eigen::Translation3f t(5,0,0);
-  affine = t;
-  tf = affine.matrix();
-  pcl::transformPointCloud(*scan_ptr2, *transformed_scan_ptr2, tf);
+  // on base coordinate, matching between last getted pcd and now getted pcd.
+  // if this is first map, register it to map directly
+  pcl::PointCloud<pcl::PointXYZI>::Ptr input_cloud_global_ptr(new pcl::PointCloud<pcl::PointXYZI>());
+  Eigen::Matrix4f init_guess_pose_change, pose_change;
+  if(_is_first_scan == true)
+  {
+    input_cloud_global_ptr = input_cloud_base_ptr;
+    _is_first_scan = false;
+  }
+  else
+  {
+    // ndt matching
+    calucurateInitGuessPoseChange(init_guess_pose_change);
+    ndt(_filtered_previous_cloud_ptr, input_cloud_base_ptr, init_guess_pose_change, pose_change);
+    
+    // from base coordinate to global coordinate
+    _global_pose_change = pose_change * _global_pose_change;
+    pcl::transformPointCloud(*input_cloud_base_ptr, *input_cloud_global_ptr, _global_pose_change);
+  }
   
-  sensor_msgs::PointCloud2 map_msg, map_msg2;
-  pcl::toROSMsg(*transformed_scan_ptr, map_msg);
-  pcl::toROSMsg(*transformed_scan_ptr2, map_msg2);
-  map_msg.header.frame_id = "map";
-  map_msg2.header.frame_id = "map";
+  // filter cloud to prevent "out of memory", and register input cloud to a map
+  pcl::PointCloud<pcl::PointXYZI>::Ptr _filtered_input_cloud_global_ptr(new pcl::PointCloud<pcl::PointXYZI>());
+  voxelGridFilter(input_cloud_global_ptr, _filtered_input_cloud_global_ptr);
+  _map += *_filtered_input_cloud_global_ptr;
+  
+  // publish map
+  sensor_msgs::PointCloud2 map_msg;
+  pcl::toROSMsg(_map, map_msg);
+  map_msg.header.frame_id = _map_frame_id;
   _map_pub.publish(map_msg);
-  _map_pub2.publish(map_msg2);
-  
-  // Apply voxelgrid filter
-  pcl::PointCloud<pcl::PointXYZI>::Ptr filtered_scan_ptr(new pcl::PointCloud<pcl::PointXYZI>());
-  pcl::VoxelGrid<pcl::PointXYZI> voxel_grid_filter;
-  voxel_grid_filter.setLeafSize(_voxel_leaf_size, _voxel_leaf_size, _voxel_leaf_size);
-  voxel_grid_filter.setInputCloud(transformed_scan_ptr);
-  voxel_grid_filter.filter(*filtered_scan_ptr); 
-  
-    // caluculate init guess
-  Eigen::Translation3f t2(0,0,0); //kari
+   
+  // filter input cloud, and register it as a last getted cloud
+  voxelGridFilter(input_cloud_base_ptr, _filtered_previous_cloud_ptr);
+}
+
+void NDT_SLAM::voxelGridFilter(const pcl::PointCloud<pcl::PointXYZI>::Ptr &in,
+                                     pcl::PointCloud<pcl::PointXYZI>::Ptr &out)
+{
+  pcl::VoxelGrid<pcl::PointXYZI> filter;
+  filter.setLeafSize(_voxel_leaf_size, _voxel_leaf_size, _voxel_leaf_size);
+  filter.setInputCloud(in);
+  filter.filter(*out); 
+}
+
+void NDT_SLAM::calucurateInitGuessPoseChange(Eigen::Matrix4f &init_guess_pose_change)
+{
+  Eigen::Translation3f t(0,0,0); //kari
   Eigen::Affine3f at;
   at = t;
-  Eigen::Matrix4f init_guess = at.matrix();
-  
-    // NDT matching 
-  pcl::PointCloud<pcl::PointXYZI> output_cloud;
+  init_guess_pose_change = at.matrix();
+}
+
+void NDT_SLAM::ndt(const pcl::PointCloud<pcl::PointXYZI>::Ptr      &source,
+                   const pcl::PointCloud<pcl::PointXYZI>::Ptr      &target,
+                   const Eigen::Matrix4f                           &init_guess_pose_change,
+                         Eigen::Matrix4f                           &pose_change)
+{
   if(_is_first_map == true)
   {
-    if(_method_type==0) _ndt.setInputTarget(transformed_scan_ptr2);
-    else _omp_ndt.setInputTarget(transformed_scan_ptr2);
-
+    if(_method_type==0) _ndt.setInputTarget(target);
+    else _omp_ndt.setInputTarget(target);
     _is_first_map = false;
   }
   
-    Eigen::Matrix4f pose_change;
+  pcl::PointCloud<pcl::PointXYZI> output_cloud;
   if(_method_type==0)
   {
-    _ndt.setInputSource(filtered_scan_ptr);
-    _ndt.align(output_cloud, init_guess);
+    _ndt.setInputSource(source);
+    _ndt.align(output_cloud, init_guess_pose_change);
     //fitness_score = ndt.getFitnessScore();
     pose_change = _ndt.getFinalTransformation();
     //has_converged = ndt.hasConverged();
@@ -136,17 +158,26 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   }
   else
   {
-    _omp_ndt.setInputSource(filtered_scan_ptr);
-    _omp_ndt.align(output_cloud, init_guess);
+    _omp_ndt.setInputSource(source);
+    _omp_ndt.align(output_cloud, init_guess_pose_change);
     //fitness_score = ndt.getFitnessScore();
     pose_change = _omp_ndt.getFinalTransformation();
     //has_converged = _omp_ndt.hasConverged();
     //final_num_iteration = _omp_ndt.getFinalNumIteration();
     //transformation_probability = ndt.getTransformationProbability();
   } 
-  std::cout << pose_change << std::endl;
-
 }
+
+
+
+
+
+
+
+
+
+
+
 
 /*
 void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
@@ -156,7 +187,7 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   
   // limit distanace
   
-  // from lidar coordinate to base coordinate
+  // from lidar coordinate to base(robot) coordinate
   pcl::PointCloud<pcl::PointXYZI>::Ptr transformed_scan_ptr(new pcl::PointCloud<pcl::PointXYZI>());
   pcl::transformPointCloud(scan, *transformed_scan_ptr, _tf_btol);
   
@@ -185,12 +216,11 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   pcl::PointCloud<pcl::PointXYZI> output_cloud;
   if(_is_first_map == true)
   {
-    if(_method_type==0) _ndt.setInputTarget(_map_ptr);
-    else _omp_ndt.setInputTarget(_map_ptr);
+    if(_method_type==0) _ndt.setInputTarget(_previous_cloud_ptr);
+    else _omp_ndt.setInputTarget(_previous_cloud_ptr);
 
     _is_first_map = false;
   }
-  
   
   Eigen::Matrix4f pose_change;
   if(_method_type==0)
@@ -214,6 +244,12 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
     //transformation_probability = ndt.getTransformationProbability();
   } 
 
+}
+*/
+
+
+
+/*
   // add scan to map
   _estimated_pose.x += pose_change(0,3);
   _estimated_pose.y += pose_change(1,3);
@@ -235,8 +271,7 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
     // update pose
     _current_pose.x = _estimated_pose.x;
     _current_pose.y = _estimated_pose.y;
-  }
-}
+
 */
 
 
