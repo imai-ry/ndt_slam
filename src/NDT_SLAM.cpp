@@ -127,7 +127,7 @@ void NDT_SLAM::voxelGridFilter(const pcl::PointCloud<pcl::PointXYZI>::Ptr &in,
 void NDT_SLAM::calucurateInitGuess(Eigen::Matrix4f &init_guess)
 {
   Eigen::Vector3f guess_pose;
-  guess_pose = _diff_pose;
+  guess_pose = _previous_pose + _diff_pose;
   Eigen::Translation3f t(guess_pose(0), guess_pose(1), guess_pose(2));
   Eigen::Affine3f at;
   at = t * _tf_btol;
