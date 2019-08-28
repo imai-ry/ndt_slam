@@ -20,20 +20,25 @@ class NDT_SLAM
 {
 private:
 
+  typedef struct
+  {
+    double x; double y; double z; double roll; double pitch; double yaw;
+  } Pose;
+  
+  Pose _diff_pose, _previous_pose, _added_pose;
+
   // publisher & subscriber
   ros::Subscriber _sub;
   ros::Publisher _map_pub;
   
   // transform between base and lidar
-  Eigen::Matrix4d _tf_btol, _tf_ltob;
+  Eigen::Matrix4f _tf_btol, _tf_ltob;
   
   //
   int _method_type;
   pcl::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI> _ndt;
   pcl_omp::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI> _omp_ndt;
   float _scan_shift;
-  
-  Eigen::Vector3f _diff_pose, _previous_pose;
 
   std::string _map_frame_id;
 
@@ -54,11 +59,14 @@ private:
                              double                               voxel_size);
   /*
   void calucurateInitGuess(Eigen::Matrix4f &init_guess);
+  */
   void ndt(const pcl::PointCloud<pcl::PointXYZI>::Ptr      &source,
            const pcl::PointCloud<pcl::PointXYZI>::Ptr      &target,
-           const Eigen::Matrix4f                           &init_guess,
-                 Eigen::Matrix4f                           &t_localizer);
-  */
+            Eigen::Matrix4f                           &init_guess,
+            Eigen::Matrix4f                           &t_localizer);
+            
+  double calcDiffForRadian(const double lhs_rad, const double rhs_rad);
+
   
 public:
   NDT_SLAM(ros::NodeHandle nh, ros::NodeHandle private_nh);
