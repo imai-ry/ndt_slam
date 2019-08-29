@@ -103,12 +103,16 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   //ty();
   */
   
-  /*
+  
   // update pose 
   Eigen::Matrix4f t_base_link;
-  //t_base_link = t_localizer * _tf_ltob;
-  t_base_link = init_guess * _tf_ltob;
+  t_base_link = t_localizer * _tf_ltob;
+  std::cout << "t_base_link" << std::endl;
+  std::cout << t_base_link << std::endl;
+  std::cout << "af.matrix()" << std::endl;
+  std::cout << af.matrix() << std::endl;
   
+  /*
   Pose current_pose;
   current_pose.x = t_base_link(0,3);  
   current_pose.y = t_base_link(1,3);  
@@ -188,8 +192,6 @@ void NDT_SLAM::ndt(const pcl::PointCloud<pcl::PointXYZI>::Ptr      &source,
     ndt.align(output_cloud, init_guess);
     //fitness_score = ndt.getFitnessScore();
     t_localizer = ndt.getFinalTransformation();
-    std::cout << "t_localizer (naka)" << std::endl;
-    std::cout << t_localizer << std::endl;
     //has_converged = ndt.hasConverged();
     //final_num_iteration = ndt.getFinalNumIteration();
     //transformation_probability = ndt.getTransformationProbability();
@@ -206,8 +208,6 @@ void NDT_SLAM::ndt(const pcl::PointCloud<pcl::PointXYZI>::Ptr      &source,
     omp_ndt.align(output_cloud, init_guess);
     //fitness_score = ndt.getFitnessScore();
     t_localizer = omp_ndt.getFinalTransformation();
-    std::cout << "t_localizer (naka_openmp)" << std::endl;
-    std::cout << t_localizer << std::endl;
     //has_converged = _omp_ndt.hasConverged();
     //final_num_iteration = _omp_ndt.getFinalNumIteration();
     //transformation_probability = ndt.getTransformationProbability();
