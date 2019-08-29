@@ -14,6 +14,9 @@
 
 #include <pcl_omp_registration/ndt.h>
 
+#include <tf/transform_broadcaster.h>
+#include <tf/transform_datatypes.h>
+
 #include <eigen3/Eigen/Geometry>
 
 class NDT_SLAM

@@ -4,7 +4,7 @@ NDT_SLAM::NDT_SLAM(ros::NodeHandle nh, ros::NodeHandle private_nh)
 {
   // publisher & subscriber
   _map_pub = nh.advertise<sensor_msgs::PointCloud2>("ndt_map", 1);
-  _sub = nh.subscribe("pointcloud", 1000, &NDT_SLAM::callback, this);
+  _sub = nh.subscribe("pointcloud", 100000, &NDT_SLAM::callback, this);
 
   // get transform base(global) coordinate to lidar coordinate
   double x,y,z,roll,pitch,yaw;
@@ -95,9 +95,12 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   t_base_link = t_localizer * _tf_ltob;
   
   Pose current_pose;
+  current_pose.x=0;current_pose.y=0;current_pose.z=0;current_pose.roll=0;current_pose.pitch=0;current_pose.yaw=0;
   current_pose.x = t_base_link(0,3);  
   current_pose.y = t_base_link(1,3);  
-  current_pose.z = t_base_link(2,3); 
+  current_pose.z = t_base_link(2,3);
+  
+  /* 
   Eigen::Matrix3f rot;
   rot(0,0)=t_base_link(0,0); rot(0,1)=t_base_link(0,1); rot(0,2)=t_base_link(0,2);
   rot(1,0)=t_base_link(1,0); rot(1,1)=t_base_link(1,1); rot(1,2)=t_base_link(1,2);
@@ -106,6 +109,15 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   current_pose.roll = euler(2);  
   current_pose.pitch = euler(1);  
   current_pose.yaw = euler(0);
+  */
+  
+  tf::Matrix3x3 mat_b;
+  mat_b.setValue(static_cast<double>(t_base_link(0, 0)), static_cast<double>(t_base_link(0, 1)),
+                 static_cast<double>(t_base_link(0, 2)), static_cast<double>(t_base_link(1, 0)),
+                 static_cast<double>(t_base_link(1, 1)), static_cast<double>(t_base_link(1, 2)),
+                 static_cast<double>(t_base_link(2, 0)), static_cast<double>(t_base_link(2, 1)),
+                 static_cast<double>(t_base_link(2, 2)));
+  mat_b.getRPY(current_pose.roll, current_pose.pitch, current_pose.yaw, 1);
   
   _diff_pose.x = current_pose.x - _previous_pose.x;
   _diff_pose.y = current_pose.y - _previous_pose.y;
