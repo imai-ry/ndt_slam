@@ -42,8 +42,8 @@ NDT_SLAM::NDT_SLAM(ros::NodeHandle nh, ros::NodeHandle private_nh)
   _is_first_map = true;
   _map_ptr.reset(new pcl::PointCloud<pcl::PointXYZI>());
   
-  _diff_pose.x = 1; _diff_pose.y = 2; _diff_pose.z = 3; 
-  _diff_pose.roll = 0.5; _diff_pose.pitch = 0.4; _diff_pose.yaw=0.2;
+  _diff_pose.x = 0; _diff_pose.y = 0; _diff_pose.z = 0; 
+  _diff_pose.roll = 0; _diff_pose.pitch = 0; _diff_pose.yaw=0;
   _previous_pose.x=0;_previous_pose.y=0;_previous_pose.z=0;
   _previous_pose.roll=0;_previous_pose.pitch=0;_previous_pose.yaw=0;
   _added_pose.x = 0; _added_pose.y = 0; _added_pose.z = 0; 
@@ -86,20 +86,9 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
        *Eigen::AngleAxisf(guess_pose.pitch, Eigen::Vector3f::UnitY())
        *Eigen::AngleAxisf(guess_pose.roll, Eigen::Vector3f::UnitX());
   init_guess = af.matrix() * _tf_btol;
-  
-  std::cout << "init_guess" << std::endl;
-  std::cout << init_guess << std::endl;
-  pcl::PointCloud<pcl::PointXYZI>::Ptr tl_ptr(new pcl::PointCloud<pcl::PointXYZI>());
-  pcl::transformPointCloud(*filtered_input_cloud_lidar_ptr, *tl_ptr, init_guess);
-  ndt(filtered_input_cloud_lidar_ptr, tl_ptr, init_guess, t_localizer);
-  std::cout << "t_localizer (soto)" << std::endl;
-  std::cout << t_localizer << std::endl;
-  
-  
+ 
   // ndt matching
-  /*
   ndt(filtered_input_cloud_lidar_ptr, _map_ptr, init_guess, t_localizer);
-  */
   
   // update pose 
   Eigen::Matrix4f t_base_link;
@@ -118,21 +107,13 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   current_pose.pitch = euler(1);  
   current_pose.yaw = euler(0);
   
-  std::cout << "euler" << std::endl;
-  std::cout << euler << std::endl;
-  std::cout << "current_pose" << std::endl;
-  std::cout << current_pose.x << std::endl;
-  std::cout << current_pose.y << std::endl;
-  std::cout << current_pose.z << std::endl;
-  std::cout << current_pose.roll << std::endl;
-  std::cout << current_pose.pitch << std::endl;
-  std::cout << current_pose.yaw << std::endl;
-  
-  /*
   _diff_pose.x = current_pose.x - _previous_pose.x;
   _diff_pose.y = current_pose.y - _previous_pose.y;
   _diff_pose.z = current_pose.z - _previous_pose.z;
+  
+  std::cout << "current " << current_pose.yaw << "previous: " << _previous_pose.yaw <<  std::endl;
   _diff_pose.yaw = calcDiffForRadian(current_pose.yaw, _previous_pose.yaw);
+  std::cout << "diff: " << _diff_pose.yaw << std::endl; 
   
   if(sqrt(pow(current_pose.x - _added_pose.x, 2.0) + pow(current_pose.y - _added_pose.y, 2.0)) > _scan_shift)
   {
@@ -160,8 +141,6 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   _previous_pose.roll = current_pose.roll;
   _previous_pose.pitch = current_pose.pitch;
   _previous_pose.yaw = current_pose.yaw;
-  
-  */
 }
 
 void NDT_SLAM::voxelGridFilter(const pcl::PointCloud<pcl::PointXYZI>::Ptr &in,
@@ -179,7 +158,6 @@ void NDT_SLAM::ndt(const pcl::PointCloud<pcl::PointXYZI>::Ptr      &source,
                    const Eigen::Matrix4f                           &init_guess,
                    Eigen::Matrix4f                           &t_localizer)
 {
-  std::cout << _method_type << std::endl; 
   pcl::PointCloud<pcl::PointXYZI> output_cloud;
   if(_method_type==0)
   {
