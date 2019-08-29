@@ -99,20 +99,12 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   // ndt matching
   /*
   ndt(filtered_input_cloud_lidar_ptr, _map_ptr, init_guess, t_localizer);
-  
-  //ty();
   */
-  
   
   // update pose 
   Eigen::Matrix4f t_base_link;
   t_base_link = t_localizer * _tf_ltob;
-  std::cout << "t_base_link" << std::endl;
-  std::cout << t_base_link << std::endl;
-  std::cout << "af.matrix()" << std::endl;
-  std::cout << af.matrix() << std::endl;
   
-  /*
   Pose current_pose;
   current_pose.x = t_base_link(0,3);  
   current_pose.y = t_base_link(1,3);  
@@ -122,12 +114,21 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   rot(1,0)=t_base_link(1,0); rot(1,1)=t_base_link(1,1); rot(1,2)=t_base_link(1,2);
   rot(2,0)=t_base_link(2,0); rot(2,1)=t_base_link(2,1); rot(2,2)=t_base_link(2,2);
   Eigen::Vector3f euler = rot.eulerAngles(2, 1, 0);
-  std::cout << "euler" << std::endl;
-  std::cout << euler << std::endl;
   current_pose.roll = euler(2);  
   current_pose.pitch = euler(1);  
   current_pose.yaw = euler(0);
   
+  std::cout << "euler" << std::endl;
+  std::cout << euler << std::endl;
+  std::cout << "current_pose" << std::endl;
+  std::cout << current_pose.x << std::endl;
+  std::cout << current_pose.y << std::endl;
+  std::cout << current_pose.z << std::endl;
+  std::cout << current_pose.roll << std::endl;
+  std::cout << current_pose.pitch << std::endl;
+  std::cout << current_pose.yaw << std::endl;
+  
+  /*
   _diff_pose.x = current_pose.x - _previous_pose.x;
   _diff_pose.y = current_pose.y - _previous_pose.y;
   _diff_pose.z = current_pose.z - _previous_pose.z;
