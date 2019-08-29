@@ -3,7 +3,7 @@
 NDT_SLAM::NDT_SLAM(ros::NodeHandle nh, ros::NodeHandle private_nh)
 {
   // publisher & subscriber
-  _map_pub = nh.advertise<sensor_msgs::PointCloud2>("ndt_map", 1);
+  _map_pub = nh.advertise<sensor_msgs::PointCloud2>("ndt_map", 1000);
   _sub = nh.subscribe("pointcloud", 100000, &NDT_SLAM::callback, this);
 
   // get transform base(global) coordinate to lidar coordinate
@@ -16,12 +16,11 @@ NDT_SLAM::NDT_SLAM(ros::NodeHandle nh, ros::NodeHandle private_nh)
      !(private_nh.getParam("tf_btol_yaw", yaw)) )
     ROS_BREAK();
   
-  Eigen::Affine3f affine_btol;
-  affine_btol = Eigen::Translation3f(x,y,z)
-                *Eigen::AngleAxisf(yaw, Eigen::Vector3f::UnitZ())
-                *Eigen::AngleAxisf(pitch, Eigen::Vector3f::UnitY())
-                *Eigen::AngleAxisf(roll, Eigen::Vector3f::UnitX());
-  _tf_btol = affine_btol.matrix(); 
+  Eigen::Translation3f tl_btol(x, y, z);                 // tl: translation
+  Eigen::AngleAxisf rot_x_btol(roll, Eigen::Vector3f::UnitX());  // rot: rotation
+  Eigen::AngleAxisf rot_y_btol(pitch, Eigen::Vector3f::UnitY());
+  Eigen::AngleAxisf rot_z_btol(yaw, Eigen::Vector3f::UnitZ());
+  _tf_btol = (tl_btol * rot_z_btol * rot_y_btol * rot_x_btol).matrix();
   _tf_ltob = _tf_btol.inverse();
       
   // get NDT parameter
@@ -40,7 +39,7 @@ NDT_SLAM::NDT_SLAM(ros::NodeHandle nh, ros::NodeHandle private_nh)
   // etc
   _is_first_scan = true; 
   _is_first_map = true;
-  _map_ptr.reset(new pcl::PointCloud<pcl::PointXYZI>());
+  _map.header.frame_id = "map";
   
   _diff_pose.x = 0; _diff_pose.y = 0; _diff_pose.z = 0; 
   _diff_pose.roll = 0; _diff_pose.pitch = 0; _diff_pose.yaw=0;
@@ -48,57 +47,137 @@ NDT_SLAM::NDT_SLAM(ros::NodeHandle nh, ros::NodeHandle private_nh)
   _previous_pose.roll=0;_previous_pose.pitch=0;_previous_pose.yaw=0;
   _added_pose.x = 0; _added_pose.y = 0; _added_pose.z = 0; 
   _added_pose.roll = 0; _added_pose.pitch = 0; _added_pose.yaw=0;
+  _current_pose.x=0;_current_pose.y=0;_current_pose.z=0;
+  _current_pose.roll=0;_current_pose.pitch=0;_current_pose.yaw=0;
+  _ndt_pose.x=0;_ndt_pose.y=0;_ndt_pose.z=0;
+  _ndt_pose.roll=0;_ndt_pose.pitch=0;_ndt_pose.yaw=0;
 }
 
 
 void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
 {
-  pcl::PointCloud<pcl::PointXYZI>::Ptr input_cloud_lidar_ptr(new pcl::PointCloud<pcl::PointXYZI>());
-  pcl::PointCloud<pcl::PointXYZI>      input_cloud_global;
-  pcl::fromROSMsg(*input, *input_cloud_lidar_ptr);
+  double r;
+  pcl::PointXYZI p;
+  pcl::PointCloud<pcl::PointXYZI> scan, tmp;
+  pcl::PointCloud<pcl::PointXYZI>::Ptr filtered_scan_ptr(new pcl::PointCloud<pcl::PointXYZI>());
+  pcl::PointCloud<pcl::PointXYZI>::Ptr transformed_scan_ptr(new pcl::PointCloud<pcl::PointXYZI>());
 
+  Eigen::Matrix4f t_localizer(Eigen::Matrix4f::Identity());
+  Eigen::Matrix4f t_base_link(Eigen::Matrix4f::Identity());
+  
+  //
+  pcl::fromROSMsg(*input, tmp);
+  double max_scan_range = 150;
+  double min_scan_range = 0.4;
+  for (pcl::PointCloud<pcl::PointXYZI>::const_iterator item = tmp.begin(); item != tmp.end(); item++)
+  {
+    p.x = (double)item->x;
+    p.y = (double)item->y;
+    p.z = (double)item->z;
+    p.intensity = (double)item->intensity;
+
+    r = sqrt(pow(p.x, 2.0) + pow(p.y, 2.0));
+    if (min_scan_range < r && r < max_scan_range)
+    {
+      scan.push_back(p);
+    }
+  }
+
+  pcl::PointCloud<pcl::PointXYZI>::Ptr scan_ptr(new pcl::PointCloud<pcl::PointXYZI>(scan));
+  
   // if this is first map, register it to map directly
   if(_is_first_scan == true)
   {
-    pcl::transformPointCloud(*input_cloud_lidar_ptr, input_cloud_global, _tf_btol);
-    *_map_ptr += input_cloud_global;
+    pcl::transformPointCloud(*scan_ptr, *transformed_scan_ptr, _tf_btol);
+    _map += *transformed_scan_ptr;
     _is_first_scan = false;
   }
 
   // voxel grid filter on "input_cloud_lidar"
-  pcl::PointCloud<pcl::PointXYZI>::Ptr filtered_input_cloud_lidar_ptr(new pcl::PointCloud<pcl::PointXYZI>());
-  voxelGridFilter(input_cloud_lidar_ptr, filtered_input_cloud_lidar_ptr, _voxel_leaf_size);
+  pcl::VoxelGrid<pcl::PointXYZI> voxel_grid_filter;
+  voxel_grid_filter.setLeafSize(_voxel_leaf_size, _voxel_leaf_size, _voxel_leaf_size);
+  voxel_grid_filter.setInputCloud(scan_ptr);
+  voxel_grid_filter.filter(*filtered_scan_ptr);
   
-  // calucurate init_guess
-  Eigen::Matrix4f init_guess, t_localizer;
+  pcl::PointCloud<pcl::PointXYZI>::Ptr map_ptr(new pcl::PointCloud<pcl::PointXYZI>(_map));
   
-  Pose guess_pose;
-  guess_pose.x = _previous_pose.x + _diff_pose.x;
-  guess_pose.y = _previous_pose.y + _diff_pose.y;
-  guess_pose.z = _previous_pose.z + _diff_pose.z;
-  guess_pose.roll = _previous_pose.roll;
-  guess_pose.pitch = _previous_pose.pitch; 
-  guess_pose.yaw = _previous_pose.yaw + _diff_pose.yaw;
+  // ndt setting
+  if (_method_type == 0)
+  {
+    _ndt.setTransformationEpsilon(_trans_eps);
+    _ndt.setStepSize(_step_size);
+    _ndt.setResolution(_ndt_res);
+    _ndt.setMaximumIterations(_max_iter);
+    _ndt.setInputSource(filtered_scan_ptr);
+  }
+  else
+  {
+    _omp_ndt.setTransformationEpsilon(_trans_eps);
+    _omp_ndt.setStepSize(_step_size);
+    _omp_ndt.setResolution(_ndt_res);
+    _omp_ndt.setMaximumIterations(_max_iter);
+    _omp_ndt.setInputSource(filtered_scan_ptr);
+  }
   
-  Eigen::Affine3f af;
-  af = Eigen::Translation3f(guess_pose.x, guess_pose.y, guess_pose.z)
-       *Eigen::AngleAxisf(guess_pose.yaw, Eigen::Vector3f::UnitZ())
-       *Eigen::AngleAxisf(guess_pose.pitch, Eigen::Vector3f::UnitY())
-       *Eigen::AngleAxisf(guess_pose.roll, Eigen::Vector3f::UnitX());
-  init_guess = af.matrix() * _tf_btol;
+  if (_is_first_map == true)
+  {
+    if (_method_type == 0)
+      _ndt.setInputTarget(map_ptr);
+    else
+      _omp_ndt.setInputTarget(map_ptr);
+    _is_first_map = false;
+  }
+  
+  // calucurate init_guess 
+  _guess_pose.x = _previous_pose.x + _diff_pose.x;
+  _guess_pose.y = _previous_pose.y + _diff_pose.y;
+  _guess_pose.z = _previous_pose.z + _diff_pose.z;
+  _guess_pose.roll = _previous_pose.roll;
+  _guess_pose.pitch = _previous_pose.pitch; 
+  _guess_pose.yaw = _previous_pose.yaw + _diff_pose.yaw;
+  
+  
+  Eigen::AngleAxisf init_rotation_x(_guess_pose.roll, Eigen::Vector3f::UnitX());
+  Eigen::AngleAxisf init_rotation_y(_guess_pose.pitch, Eigen::Vector3f::UnitY());
+  Eigen::AngleAxisf init_rotation_z(_guess_pose.yaw, Eigen::Vector3f::UnitZ());
+
+  Eigen::Translation3f init_translation(_guess_pose.x, _guess_pose.y,_guess_pose.z);
+
+  Eigen::Matrix4f init_guess =
+      (init_translation * init_rotation_z * init_rotation_y * init_rotation_x).matrix() * _tf_btol;
  
   // ndt matching
-  ndt(filtered_input_cloud_lidar_ptr, _map_ptr, init_guess, t_localizer);
+  pcl::PointCloud<pcl::PointXYZI>::Ptr output_cloud(new pcl::PointCloud<pcl::PointXYZI>);
+  double fitness_score;
+  bool has_converged;
+  int final_num_iteration;
+  if (_method_type == 0)
+  {
+    _ndt.align(*output_cloud, init_guess);
+    fitness_score = _ndt.getFitnessScore();
+    t_localizer = _ndt.getFinalTransformation();
+    has_converged = _ndt.hasConverged();
+    final_num_iteration = _ndt.getFinalNumIteration();
+    //transformation_probability = _ndt.getTransformationProbability();
+  }
+  else
+  {
+    _omp_ndt.align(*output_cloud, init_guess);
+    fitness_score = _omp_ndt.getFitnessScore();
+    t_localizer = _omp_ndt.getFinalTransformation();
+    has_converged = _omp_ndt.hasConverged();
+    final_num_iteration = _omp_ndt.getFinalNumIteration();
+  }
   
-  // update pose 
-  Eigen::Matrix4f t_base_link;
+  // calucurate base_link
   t_base_link = t_localizer * _tf_ltob;
   
-  Pose current_pose;
-  current_pose.x=0;current_pose.y=0;current_pose.z=0;current_pose.roll=0;current_pose.pitch=0;current_pose.yaw=0;
-  current_pose.x = t_base_link(0,3);  
-  current_pose.y = t_base_link(1,3);  
-  current_pose.z = t_base_link(2,3);
+  pcl::transformPointCloud(*scan_ptr, *transformed_scan_ptr, t_localizer);
+  
+  //update pose
+  _ndt_pose.x = t_base_link(0, 3);
+  _ndt_pose.y = t_base_link(1, 3);
+  _ndt_pose.z = t_base_link(2, 3);
   
   /* 
   Eigen::Matrix3f rot;
@@ -117,92 +196,57 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
                  static_cast<double>(t_base_link(1, 1)), static_cast<double>(t_base_link(1, 2)),
                  static_cast<double>(t_base_link(2, 0)), static_cast<double>(t_base_link(2, 1)),
                  static_cast<double>(t_base_link(2, 2)));
-  mat_b.getRPY(current_pose.roll, current_pose.pitch, current_pose.yaw, 1);
+  mat_b.getRPY(_ndt_pose.roll, _ndt_pose.pitch, _ndt_pose.yaw, 1);
   
-  _diff_pose.x = current_pose.x - _previous_pose.x;
-  _diff_pose.y = current_pose.y - _previous_pose.y;
-  _diff_pose.z = current_pose.z - _previous_pose.z;
+  _current_pose.x = _ndt_pose.x;
+  _current_pose.y = _ndt_pose.y;
+  _current_pose.z = _ndt_pose.z;
+  _current_pose.roll = _ndt_pose.roll;
+  _current_pose.pitch = _ndt_pose.pitch;
+  _current_pose.yaw = _ndt_pose.yaw;
   
-  std::cout << "current " << current_pose.yaw << "previous: " << _previous_pose.yaw <<  std::endl;
-  _diff_pose.yaw = calcDiffForRadian(current_pose.yaw, _previous_pose.yaw);
-  std::cout << "diff: " << _diff_pose.yaw << std::endl; 
+  _diff_pose.x = _current_pose.x - _previous_pose.x;
+  _diff_pose.y = _current_pose.y - _previous_pose.y;
+  _diff_pose.z = _current_pose.z - _previous_pose.z;
+  _diff_pose.yaw = calcDiffForRadian(_current_pose.yaw, _previous_pose.yaw);
   
-  if(sqrt(pow(current_pose.x - _added_pose.x, 2.0) + pow(current_pose.y - _added_pose.y, 2.0)) > _scan_shift)
+  _previous_pose.x = _current_pose.x;
+  _previous_pose.y = _current_pose.y;
+  _previous_pose.z = _current_pose.z;
+  _previous_pose.roll = _current_pose.roll;
+  _previous_pose.pitch = _current_pose.pitch;
+  _previous_pose.yaw = _current_pose.yaw;
+
+  // Calculate the shift between added_pos and current_pos
+  double shift = sqrt(pow(_current_pose.x - _added_pose.x, 2.0) + pow(_current_pose.y - _added_pose.y, 2.0));
+  if(shift >= _scan_shift)
   {
     // register to a map 
-    pcl::transformPointCloud(*input_cloud_lidar_ptr, input_cloud_global, t_localizer);
-    *_map_ptr += input_cloud_global;
+    _map += *transformed_scan_ptr;
+    _added_pose.x = _current_pose.x;
+    _added_pose.y = _current_pose.y;
+    _added_pose.z = _current_pose.z;
+    _added_pose.roll = _current_pose.roll;
+    _added_pose.pitch = _current_pose.pitch;
+    _added_pose.yaw = _current_pose.yaw;
     
-    _added_pose.x = current_pose.x;
-    _added_pose.y = current_pose.y;
-    _added_pose.z = current_pose.z;
-    _added_pose.roll = current_pose.roll;
-    _added_pose.pitch = current_pose.pitch;
-    _added_pose.yaw = current_pose.yaw;
+    if (_method_type == 0)
+      _ndt.setInputTarget(map_ptr);
+    else
+      _omp_ndt.setInputTarget(map_ptr);
   }
   
   // publish map
-  sensor_msgs::PointCloud2 map;
-  pcl::toROSMsg(*_map_ptr, map);
-  map.header.frame_id = "map";
-  _map_pub.publish(map);
+  sensor_msgs::PointCloud2::Ptr map_msg_ptr(new sensor_msgs::PointCloud2);
+  pcl::toROSMsg(*map_ptr, *map_msg_ptr);
+  _map_pub.publish(*map_msg_ptr);
   
-  _previous_pose.x = current_pose.x;
-  _previous_pose.y = current_pose.y;
-  _previous_pose.z = current_pose.z;
-  _previous_pose.roll = current_pose.roll;
-  _previous_pose.pitch = current_pose.pitch;
-  _previous_pose.yaw = current_pose.yaw;
-}
+  std::cout << "-----------------------------------------------------------------" << std::endl;
+  std::cout << "NDT has converged: " << has_converged << std::endl;
+  std::cout << "Fitness score: " << fitness_score << std::endl;
+  std::cout << "Number of iteration: " << final_num_iteration << std::endl;
+  std::cout << "-----------------------------------------------------------------" << std::endl;
 
-void NDT_SLAM::voxelGridFilter(const pcl::PointCloud<pcl::PointXYZI>::Ptr &in,
-                                     pcl::PointCloud<pcl::PointXYZI>::Ptr &out,
-                                     double                               voxel_size)
-{
-  pcl::VoxelGrid<pcl::PointXYZI> filter;
-  filter.setLeafSize(voxel_size, voxel_size, voxel_size);
-  filter.setInputCloud(in);
-  filter.filter(*out); 
-}
-
-void NDT_SLAM::ndt(const pcl::PointCloud<pcl::PointXYZI>::Ptr      &source,
-                   const pcl::PointCloud<pcl::PointXYZI>::Ptr      &target,
-                   const Eigen::Matrix4f                           &init_guess,
-                   Eigen::Matrix4f                           &t_localizer)
-{
-  pcl::PointCloud<pcl::PointXYZI> output_cloud;
-  if(_method_type==0)
-  {
-    pcl::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI> ndt;
-    ndt.setInputTarget(target);
-    ndt.setTransformationEpsilon(_trans_eps);
-    ndt.setStepSize(_step_size);
-    ndt.setResolution(_ndt_res);
-    ndt.setMaximumIterations(_max_iter);
-    ndt.setInputSource(source);
-    ndt.align(output_cloud, init_guess);
-    //fitness_score = ndt.getFitnessScore();
-    t_localizer = ndt.getFinalTransformation();
-    //has_converged = ndt.hasConverged();
-    //final_num_iteration = ndt.getFinalNumIteration();
-    //transformation_probability = ndt.getTransformationProbability();
-  }
-  else
-  {
-    pcl_omp::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI> omp_ndt;
-    omp_ndt.setInputTarget(target);
-    omp_ndt.setTransformationEpsilon(_trans_eps);
-    omp_ndt.setStepSize(_step_size);
-    omp_ndt.setResolution(_ndt_res);
-    omp_ndt.setMaximumIterations(_max_iter);
-    omp_ndt.setInputSource(source);
-    omp_ndt.align(output_cloud, init_guess);
-    //fitness_score = ndt.getFitnessScore();
-    t_localizer = omp_ndt.getFinalTransformation();
-    //has_converged = _omp_ndt.hasConverged();
-    //final_num_iteration = _omp_ndt.getFinalNumIteration();
-    //transformation_probability = ndt.getTransformationProbability();
-  } 
 }
 
 double NDT_SLAM::calcDiffForRadian(const double lhs_rad, const double rhs_rad)

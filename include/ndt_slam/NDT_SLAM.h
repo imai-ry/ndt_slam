@@ -28,7 +28,7 @@ private:
     double x; double y; double z; double roll; double pitch; double yaw;
   } Pose;
   
-  Pose _diff_pose, _previous_pose, _added_pose;
+  Pose _diff_pose, _current_pose, _previous_pose, _added_pose, _guess_pose, _ndt_pose;
 
   // publisher & subscriber
   ros::Subscriber _sub;
@@ -37,6 +37,10 @@ private:
   // transform between base and lidar
   Eigen::Matrix4f _tf_btol, _tf_ltob;
   
+  pcl::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI> _ndt;
+  pcl_omp::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI> _omp_ndt;
+
+  
   //
   int _method_type;
   float _scan_shift;
@@ -44,8 +48,8 @@ private:
   std::string _map_frame_id;
 
   bool _is_first_scan, _is_first_map;
-  
-  pcl::PointCloud<pcl::PointXYZI>::Ptr _map_ptr;
+  pcl::PointCloud<pcl::PointXYZI> _map;
+ 
   
   // NDT parameter
   double _voxel_leaf_size;
@@ -54,18 +58,7 @@ private:
   float _ndt_res;
   int   _max_iter;
   
-  void callback(const sensor_msgs::PointCloud2::ConstPtr& input);
-  void voxelGridFilter(const pcl::PointCloud<pcl::PointXYZI>::Ptr &in,
-                             pcl::PointCloud<pcl::PointXYZI>::Ptr &out,
-                             double                               voxel_size);
-  /*
-  void calucurateInitGuess(Eigen::Matrix4f &init_guess);
-  */
-  void ndt(const pcl::PointCloud<pcl::PointXYZI>::Ptr      &source,
-           const pcl::PointCloud<pcl::PointXYZI>::Ptr      &target,
-           const Eigen::Matrix4f                           &init_guess,
-            Eigen::Matrix4f                           &t_localizer);
-            
+  void callback(const sensor_msgs::PointCloud2::ConstPtr& input);          
   double calcDiffForRadian(const double lhs_rad, const double rhs_rad);
 
   
