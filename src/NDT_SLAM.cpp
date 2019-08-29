@@ -17,10 +17,10 @@ NDT_SLAM::NDT_SLAM(ros::NodeHandle nh, ros::NodeHandle private_nh)
     ROS_BREAK();
   
   Eigen::Affine3f affine_btol;
-  affine_btol = Eigen::AngleAxisf(yaw, Eigen::Vector3f::UnitZ())
+  affine_btol = Eigen::Translation3f(x,y,z)
+                *Eigen::AngleAxisf(yaw, Eigen::Vector3f::UnitZ())
                 *Eigen::AngleAxisf(pitch, Eigen::Vector3f::UnitY())
-                *Eigen::AngleAxisf(roll, Eigen::Vector3f::UnitX())
-                *Eigen::Translation3f(x,y,z);
+                *Eigen::AngleAxisf(roll, Eigen::Vector3f::UnitX());
   _tf_btol = affine_btol.matrix(); 
   _tf_ltob = _tf_btol.inverse();
       
@@ -42,8 +42,8 @@ NDT_SLAM::NDT_SLAM(ros::NodeHandle nh, ros::NodeHandle private_nh)
   _is_first_map = true;
   _map_ptr.reset(new pcl::PointCloud<pcl::PointXYZI>());
   
-  _diff_pose.x = 0; _diff_pose.y = 0; _diff_pose.z = 0; 
-  _diff_pose.roll = 0; _diff_pose.pitch = 0; _diff_pose.yaw=0;
+  _diff_pose.x = 1; _diff_pose.y = 2; _diff_pose.z = 3; 
+  _diff_pose.roll = 0.5; _diff_pose.pitch = 0.4; _diff_pose.yaw=0.2;
   _previous_pose.x=0;_previous_pose.y=0;_previous_pose.z=0;
   _previous_pose.roll=0;_previous_pose.pitch=0;_previous_pose.yaw=0;
   _added_pose.x = 0; _added_pose.y = 0; _added_pose.z = 0; 
@@ -69,10 +69,9 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   pcl::PointCloud<pcl::PointXYZI>::Ptr filtered_input_cloud_lidar_ptr(new pcl::PointCloud<pcl::PointXYZI>());
   voxelGridFilter(input_cloud_lidar_ptr, filtered_input_cloud_lidar_ptr, _voxel_leaf_size);
   
-  // ----kokomadeha oK----
-  
   // calucurate init_guess
   Eigen::Matrix4f init_guess, t_localizer;
+  
   Pose guess_pose;
   guess_pose.x = _previous_pose.x + _diff_pose.x;
   guess_pose.y = _previous_pose.y + _diff_pose.y;
@@ -82,21 +81,26 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   guess_pose.yaw = _previous_pose.yaw + _diff_pose.yaw;
   
   Eigen::Affine3f af;
-  af = Eigen::AngleAxisf(guess_pose.yaw, Eigen::Vector3f::UnitZ())
+  af = Eigen::Translation3f(guess_pose.x, guess_pose.y, guess_pose.z)
+       *Eigen::AngleAxisf(guess_pose.yaw, Eigen::Vector3f::UnitZ())
        *Eigen::AngleAxisf(guess_pose.pitch, Eigen::Vector3f::UnitY())
-       *Eigen::AngleAxisf(guess_pose.roll, Eigen::Vector3f::UnitX())
-       *Eigen::Translation3f(guess_pose.x, guess_pose.y, guess_pose.z);
+       *Eigen::AngleAxisf(guess_pose.roll, Eigen::Vector3f::UnitX());
   init_guess = af.matrix() * _tf_btol;
+  
+  // kokomade OK //
   
   // ndt matching
   /*
   ndt(filtered_input_cloud_lidar_ptr, _map_ptr, init_guess, t_localizer);
-  */
-  //ty();
   
+  //ty();
+  */
+  
+  /*
   // update pose 
   Eigen::Matrix4f t_base_link;
-  t_base_link = t_localizer * _tf_ltob;
+  //t_base_link = t_localizer * _tf_ltob;
+  t_base_link = init_guess * _tf_ltob;
   
   Pose current_pose;
   current_pose.x = t_base_link(0,3);  
@@ -107,6 +111,7 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   rot(1,0)=t_base_link(1,0); rot(1,1)=t_base_link(1,1); rot(1,2)=t_base_link(1,2);
   rot(2,0)=t_base_link(2,0); rot(2,1)=t_base_link(2,1); rot(2,2)=t_base_link(2,2);
   Eigen::Vector3f euler = rot.eulerAngles(2, 1, 0);
+  std::cout << "euler" << std::endl;
   std::cout << euler << std::endl;
   current_pose.roll = euler(2);  
   current_pose.pitch = euler(1);  
@@ -143,6 +148,8 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   _previous_pose.roll = current_pose.roll;
   _previous_pose.pitch = current_pose.pitch;
   _previous_pose.yaw = current_pose.yaw;
+  
+  */
 }
 
 void NDT_SLAM::voxelGridFilter(const pcl::PointCloud<pcl::PointXYZI>::Ptr &in,
@@ -176,7 +183,9 @@ void NDT_SLAM::ndt(const pcl::PointCloud<pcl::PointXYZI>::Ptr      &source,
   if(_is_first_map == true)
   {
     if(_method_type==0) _ndt.setInputTarget(target);
+#ifdef USE_OPENMP
     else                _omp_ndt.setInputTarget(target);
+#endif
     _is_first_map = false;
   }
   
@@ -195,6 +204,7 @@ void NDT_SLAM::ndt(const pcl::PointCloud<pcl::PointXYZI>::Ptr      &source,
     //final_num_iteration = ndt.getFinalNumIteration();
     //transformation_probability = ndt.getTransformationProbability();
   }
+#ifdef USE_OPENMP
   else
   {
     _omp_ndt.setTransformationEpsilon(_trans_eps);
@@ -209,6 +219,7 @@ void NDT_SLAM::ndt(const pcl::PointCloud<pcl::PointXYZI>::Ptr      &source,
     //final_num_iteration = _omp_ndt.getFinalNumIteration();
     //transformation_probability = ndt.getTransformationProbability();
   } 
+#endif
 }
 
 double NDT_SLAM::calcDiffForRadian(const double lhs_rad, const double rhs_rad)

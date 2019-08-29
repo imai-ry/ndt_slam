@@ -1,5 +1,6 @@
 #ifndef NDT_SLAM_H
 #define NDT_SLAM_H
+//#define USE_OPENMP
 
 #include <ros/ros.h>
 #include <sensor_msgs/PointCloud2.h>
@@ -12,7 +13,9 @@
 #include <pcl/io/pcd_io.h>
 #include <pcl/registration/ndt.h>
 
+#ifdef USE_OPENMP
 #include <pcl_omp_registration/ndt.h>
+#endif
 
 #include <eigen3/Eigen/Geometry>
 
@@ -37,7 +40,9 @@ private:
   //
   int _method_type;
   pcl::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI> _ndt;
+#ifdef USE_OPENMP
   pcl_omp::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI> _omp_ndt;
+#endif
   float _scan_shift;
 
   std::string _map_frame_id;
