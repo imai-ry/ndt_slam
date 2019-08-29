@@ -87,7 +87,14 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
        *Eigen::AngleAxisf(guess_pose.roll, Eigen::Vector3f::UnitX());
   init_guess = af.matrix() * _tf_btol;
   
-  // kokomade OK //
+  std::cout << "init_guess" << std::endl;
+  std::cout << init_guess << std::endl;
+  pcl::PointCloud<pcl::PointXYZI>::Ptr tl_ptr(new pcl::PointCloud<pcl::PointXYZI>());
+  pcl::transformPointCloud(*filtered_input_cloud_lidar_ptr, *tl_ptr, init_guess);
+  ndt(filtered_input_cloud_lidar_ptr, tl_ptr, init_guess, t_localizer);
+  std::cout << "t_localizer (soto)" << std::endl;
+  std::cout << t_localizer << std::endl;
+  
   
   // ndt matching
   /*
@@ -162,64 +169,49 @@ void NDT_SLAM::voxelGridFilter(const pcl::PointCloud<pcl::PointXYZI>::Ptr &in,
   filter.filter(*out); 
 }
 
-/*
-
-void NDT_SLAM::calucurateInitGuess(Eigen::Matrix4f &init_guess)
-{
-  Eigen::Vector3f guess_pose;
-  guess_pose = _previous_pose + _diff_pose;
-  Eigen::Translation3f t(guess_pose(0), guess_pose(1), guess_pose(2));
-  Eigen::Affine3f at;
-  at = t * _tf_btol;
-  init_guess = at.matrix();
-}
-*/
-
 void NDT_SLAM::ndt(const pcl::PointCloud<pcl::PointXYZI>::Ptr      &source,
                    const pcl::PointCloud<pcl::PointXYZI>::Ptr      &target,
-                   Eigen::Matrix4f                           &init_guess,
+                   const Eigen::Matrix4f                           &init_guess,
                    Eigen::Matrix4f                           &t_localizer)
 {
-  if(_is_first_map == true)
-  {
-    if(_method_type==0) _ndt.setInputTarget(target);
-#ifdef USE_OPENMP
-    else                _omp_ndt.setInputTarget(target);
-#endif
-    _is_first_map = false;
-  }
-  
+  std::cout << _method_type << std::endl; 
   pcl::PointCloud<pcl::PointXYZI> output_cloud;
   if(_method_type==0)
   {
-    _ndt.setTransformationEpsilon(_trans_eps);
-    _ndt.setStepSize(_step_size);
-    _ndt.setResolution(_ndt_res);
-    _ndt.setMaximumIterations(_max_iter);
-    _ndt.setInputSource(source);
-    _ndt.align(output_cloud, init_guess);
+    pcl::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI> ndt;
+    ndt.setInputTarget(target);
+    ndt.setTransformationEpsilon(_trans_eps);
+    ndt.setStepSize(_step_size);
+    ndt.setResolution(_ndt_res);
+    ndt.setMaximumIterations(_max_iter);
+    ndt.setInputSource(source);
+    ndt.align(output_cloud, init_guess);
     //fitness_score = ndt.getFitnessScore();
-    t_localizer = _ndt.getFinalTransformation();
+    t_localizer = ndt.getFinalTransformation();
+    std::cout << "t_localizer (naka)" << std::endl;
+    std::cout << t_localizer << std::endl;
     //has_converged = ndt.hasConverged();
     //final_num_iteration = ndt.getFinalNumIteration();
     //transformation_probability = ndt.getTransformationProbability();
   }
-#ifdef USE_OPENMP
   else
   {
-    _omp_ndt.setTransformationEpsilon(_trans_eps);
-    _omp_ndt.setStepSize(_step_size);
-    _omp_ndt.setResolution(_ndt_res);
-    _omp_ndt.setMaximumIterations(_max_iter);
-    _omp_ndt.setInputSource(source);
-    _omp_ndt.align(output_cloud, init_guess);
+    pcl_omp::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI> omp_ndt;
+    omp_ndt.setInputTarget(target);
+    omp_ndt.setTransformationEpsilon(_trans_eps);
+    omp_ndt.setStepSize(_step_size);
+    omp_ndt.setResolution(_ndt_res);
+    omp_ndt.setMaximumIterations(_max_iter);
+    omp_ndt.setInputSource(source);
+    omp_ndt.align(output_cloud, init_guess);
     //fitness_score = ndt.getFitnessScore();
-    t_localizer = _omp_ndt.getFinalTransformation();
+    t_localizer = omp_ndt.getFinalTransformation();
+    std::cout << "t_localizer (naka_openmp)" << std::endl;
+    std::cout << t_localizer << std::endl;
     //has_converged = _omp_ndt.hasConverged();
     //final_num_iteration = _omp_ndt.getFinalNumIteration();
     //transformation_probability = ndt.getTransformationProbability();
   } 
-#endif
 }
 
 double NDT_SLAM::calcDiffForRadian(const double lhs_rad, const double rhs_rad)
