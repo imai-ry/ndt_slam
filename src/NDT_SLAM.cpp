@@ -27,7 +27,7 @@ NDT_SLAM::NDT_SLAM(ros::NodeHandle nh, ros::NodeHandle private_nh)
   // get NDT parameter
   if(!(private_nh.getParam("method_type", _method_type)) ||
      !(private_nh.getParam("trans_eps", _trans_eps)) ||
-     !(private_nh.getParam("step_size", _ndt_res)) ||
+     !(private_nh.getParam("step_size", _step_size)) ||
      !(private_nh.getParam("ndt_res", _ndt_res)) ||
      !(private_nh.getParam("max_iter", _max_iter)))
     ROS_BREAK();
@@ -48,11 +48,35 @@ NDT_SLAM::NDT_SLAM(ros::NodeHandle nh, ros::NodeHandle private_nh)
   _previous_pose.roll=0;_previous_pose.pitch=0;_previous_pose.yaw=0;
   _added_pose.x = 0; _added_pose.y = 0; _added_pose.z = 0; 
   _added_pose.roll = 0; _added_pose.pitch = 0; _added_pose.yaw=0;
+  
+}
+
+void NDT_SLAM::test_1()
+{
+  std::cout << "##########test1##########" << std::endl;
+  std::cout << "_tf_btol : " << std::endl;
+  std::cout << _tf_btol << std::endl;
+  std::cout << "_tf_ltob : " << std::endl;
+  std::cout << _tf_ltob << std::endl;
+  std::cout << "_method_type : " << _method_type << std::endl;
+  std::cout << "_trans_eps : " << _trans_eps << std::endl;
+  std::cout << "_step_size : " << _step_size << std::endl;
+  std::cout << "_ndt_res : " << _ndt_res << std::endl;
+  std::cout << "_max_iter : " << _max_iter << std::endl;
+  std::cout << "_voxel_leaf_size : " << _voxel_leaf_size << std::endl;
+  std::cout << "_scan_shift : " << _scan_shift << std::endl;
+  std::cout << "_is_first_scan : " << _is_first_scan << std::endl;
+  std::cout << "_is_first_map: " << _is_first_map << std::endl;
+  std::cout << "########################" << std::endl;
 }
 
 
 void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
 {
+  //debug
+  test_1();
+
+
   pcl::PointCloud<pcl::PointXYZI>::Ptr input_cloud_lidar_ptr(new pcl::PointCloud<pcl::PointXYZI>());
   pcl::PointCloud<pcl::PointXYZI>      input_cloud_global;
   pcl::fromROSMsg(*input, *input_cloud_lidar_ptr);
@@ -100,16 +124,20 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   current_pose.y = t_base_link(1,3);  
   current_pose.z = t_base_link(2,3);
   
-  /* 
   Eigen::Matrix3f rot;
   rot(0,0)=t_base_link(0,0); rot(0,1)=t_base_link(0,1); rot(0,2)=t_base_link(0,2);
   rot(1,0)=t_base_link(1,0); rot(1,1)=t_base_link(1,1); rot(1,2)=t_base_link(1,2);
   rot(2,0)=t_base_link(2,0); rot(2,1)=t_base_link(2,1); rot(2,2)=t_base_link(2,2);
   Eigen::Vector3f euler = rot.eulerAngles(2, 1, 0);
-  current_pose.roll = euler(2);  
-  current_pose.pitch = euler(1);  
-  current_pose.yaw = euler(0);
-  */
+  //current_pose.roll = euler(2);  
+  //current_pose.pitch = euler(1);  
+  //current_pose.yaw = euler(0);
+  std::cout << "t_base_link" << std::endl;
+  std::cout << t_base_link << std::endl;
+  std::cout << "rot" << std::endl;
+  std::cout << rot << std::endl;
+  std::cout << "euler" << std::endl;
+  std::cout << euler << std::endl;
   
   tf::Matrix3x3 mat_b;
   mat_b.setValue(static_cast<double>(t_base_link(0, 0)), static_cast<double>(t_base_link(0, 1)),
@@ -118,16 +146,19 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
                  static_cast<double>(t_base_link(2, 0)), static_cast<double>(t_base_link(2, 1)),
                  static_cast<double>(t_base_link(2, 2)));
   mat_b.getRPY(current_pose.roll, current_pose.pitch, current_pose.yaw, 1);
+  std::cout << "tf ypr" << std::endl;
+  std::cout << current_pose.yaw << std::endl;
+  std::cout << current_pose.pitch << std::endl;
+  std::cout << current_pose.roll << std::endl;
+
   
   _diff_pose.x = current_pose.x - _previous_pose.x;
   _diff_pose.y = current_pose.y - _previous_pose.y;
   _diff_pose.z = current_pose.z - _previous_pose.z;
-  
-  std::cout << "current " << current_pose.yaw << "previous: " << _previous_pose.yaw <<  std::endl;
   _diff_pose.yaw = calcDiffForRadian(current_pose.yaw, _previous_pose.yaw);
-  std::cout << "diff: " << _diff_pose.yaw << std::endl; 
   
-  if(sqrt(pow(current_pose.x - _added_pose.x, 2.0) + pow(current_pose.y - _added_pose.y, 2.0)) > _scan_shift)
+  double shift = sqrt(pow(current_pose.x - _added_pose.x, 2.0) + pow(current_pose.y - _added_pose.y, 2.0));
+  if(shift > _scan_shift)
   {
     // register to a map 
     pcl::transformPointCloud(*input_cloud_lidar_ptr, input_cloud_global, t_localizer);

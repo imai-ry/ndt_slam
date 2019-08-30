@@ -40,9 +40,6 @@ private:
   //
   int _method_type;
   float _scan_shift;
-
-  std::string _map_frame_id;
-
   bool _is_first_scan, _is_first_map;
   
   pcl::PointCloud<pcl::PointXYZI>::Ptr _map_ptr;
@@ -67,6 +64,9 @@ private:
             Eigen::Matrix4f                           &t_localizer);
             
   double calcDiffForRadian(const double lhs_rad, const double rhs_rad);
+  
+  // test
+  void test_1();
 
   
 public:
