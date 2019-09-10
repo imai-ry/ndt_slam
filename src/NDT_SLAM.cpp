@@ -113,6 +113,7 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   {
     pcl::transformPointCloud(*scan_lidar_ptr, scan_global, _tf_btol);
     *_map_ptr += scan_global;
+    _previous_scan = scan_global; 
     _is_first_scan = false;
   }
 
@@ -140,7 +141,8 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
  
   // ndt matching
   ros::Time start2 = ros::Time::now();
-  ndt(scan_lidar_ptr, _map_ptr, init_guess, t_localizer);
+  pcl::PointCloud<pcl::PointXYZI>::Ptr previous_scan_ptr(new pcl::PointCloud<pcl::PointXYZI>(_previous_scan));
+  ndt(scan_lidar_ptr, previous_scan_ptr, init_guess, t_localizer);
   ros::Time end2 = ros::Time::now();
   ROS_INFO("time2 %f", (end2-start2).toSec());  
   
@@ -200,6 +202,8 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
     _added_pose.roll = current_pose.roll;
     _added_pose.pitch = current_pose.pitch;
     _added_pose.yaw = current_pose.yaw;
+    
+    _previous_scan = scan_global;
   }
   
   // publish map
@@ -214,6 +218,7 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   _previous_pose.roll = current_pose.roll;
   _previous_pose.pitch = current_pose.pitch;
   _previous_pose.yaw = current_pose.yaw;
+  
 }
 
 void NDT_SLAM::voxelGridFilter(const pcl::PointCloud<pcl::PointXYZI>::Ptr &in,
