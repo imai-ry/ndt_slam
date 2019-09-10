@@ -51,6 +51,10 @@ private:
   float _ndt_res;
   int   _max_iter;
   
+  // scan range
+  double _min_scan_range;
+  double _max_scan_range;
+  
   void callback(const sensor_msgs::PointCloud2::ConstPtr& input);
   void voxelGridFilter(const pcl::PointCloud<pcl::PointXYZI>::Ptr &in,
                              pcl::PointCloud<pcl::PointXYZI>::Ptr &out,
@@ -67,6 +71,8 @@ private:
   
   // test
   void test_1();
+  
+  void pointCloudRangeFilter(const pcl::PointCloud<pcl::PointXYZI> &in, pcl::PointCloud<pcl::PointXYZI> &out) const;
 
   
 public:

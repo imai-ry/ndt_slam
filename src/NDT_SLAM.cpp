@@ -34,7 +34,10 @@ NDT_SLAM::NDT_SLAM(ros::NodeHandle nh, ros::NodeHandle private_nh)
   
   // other parameters
     if(!(private_nh.getParam("voxel_leaf_size", _voxel_leaf_size)) ||
-       !(private_nh.getParam("scan_shift", _scan_shift))) 
+       !(private_nh.getParam("scan_shift", _scan_shift)) ||
+       !(private_nh.getParam("min_scan_range", _min_scan_range)) ||
+       !(private_nh.getParam("max_scan_range", _max_scan_range)) 
+       ) 
     ROS_BREAK();
   
   // etc
@@ -53,7 +56,7 @@ NDT_SLAM::NDT_SLAM(ros::NodeHandle nh, ros::NodeHandle private_nh)
 
 void NDT_SLAM::test_1()
 {
-  std::cout << "##########test1##########" << std::endl;
+  std::cout << "########## parameter ##########" << std::endl;
   std::cout << "_tf_btol : " << std::endl;
   std::cout << _tf_btol << std::endl;
   std::cout << "_tf_ltob : " << std::endl;
@@ -70,28 +73,52 @@ void NDT_SLAM::test_1()
   std::cout << "########################" << std::endl;
 }
 
+void NDT_SLAM::pointCloudRangeFilter(const pcl::PointCloud<pcl::PointXYZI> &in, pcl::PointCloud<pcl::PointXYZI> &out) const
+{
+  pcl::PointXYZI p;
+  for(pcl::PointCloud<pcl::PointXYZI>::const_iterator item = in.begin(); item != in.end(); item++)
+  {
+    p.x = (double)item->x;
+    p.y = (double)item->y;
+    p.z = (double)item->z;
+    p.intensity = (double)item->intensity;
+
+    double r = sqrt(pow(p.x, 2.0) + pow(p.y, 2.0));
+    if (_min_scan_range < r && r < _max_scan_range)
+    {
+      out.push_back(p);
+    }
+  }
+}
+
 
 void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
 {
   //debug
   test_1();
 
-
+  // range filter
   pcl::PointCloud<pcl::PointXYZI>::Ptr input_cloud_lidar_ptr(new pcl::PointCloud<pcl::PointXYZI>());
-  pcl::PointCloud<pcl::PointXYZI>      input_cloud_global;
+  pcl::PointCloud<pcl::PointXYZI>::Ptr scan_lidar_ptr(new pcl::PointCloud<pcl::PointXYZI>());
   pcl::fromROSMsg(*input, *input_cloud_lidar_ptr);
-
+  
+  ros::Time start1 = ros::Time::now();
+  pointCloudRangeFilter(*input_cloud_lidar_ptr, *scan_lidar_ptr);
+  ros::Time end1 = ros::Time::now();
+  ROS_INFO("time1 %f", (end1-start1).toSec());  
+    
   // if this is first map, register it to map directly
+  pcl::PointCloud<pcl::PointXYZI>      scan_global;
   if(_is_first_scan == true)
   {
-    pcl::transformPointCloud(*input_cloud_lidar_ptr, input_cloud_global, _tf_btol);
-    *_map_ptr += input_cloud_global;
+    pcl::transformPointCloud(*scan_lidar_ptr, scan_global, _tf_btol);
+    *_map_ptr += scan_global;
     _is_first_scan = false;
   }
 
   // voxel grid filter on "input_cloud_lidar"
-  pcl::PointCloud<pcl::PointXYZI>::Ptr filtered_input_cloud_lidar_ptr(new pcl::PointCloud<pcl::PointXYZI>());
-  voxelGridFilter(input_cloud_lidar_ptr, filtered_input_cloud_lidar_ptr, _voxel_leaf_size);
+  pcl::PointCloud<pcl::PointXYZI>::Ptr filtered_scan_lidar_ptr(new pcl::PointCloud<pcl::PointXYZI>());
+  voxelGridFilter(scan_lidar_ptr, filtered_scan_lidar_ptr, _voxel_leaf_size);
   
   // calucurate init_guess
   Eigen::Matrix4f init_guess, t_localizer;
@@ -112,7 +139,10 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   init_guess = af.matrix() * _tf_btol;
  
   // ndt matching
-  ndt(filtered_input_cloud_lidar_ptr, _map_ptr, init_guess, t_localizer);
+  ros::Time start2 = ros::Time::now();
+  ndt(scan_lidar_ptr, _map_ptr, init_guess, t_localizer);
+  ros::Time end2 = ros::Time::now();
+  ROS_INFO("time2 %f", (end2-start2).toSec());  
   
   // update pose 
   Eigen::Matrix4f t_base_link;
@@ -128,7 +158,7 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   rot(0,0)=t_base_link(0,0); rot(0,1)=t_base_link(0,1); rot(0,2)=t_base_link(0,2);
   rot(1,0)=t_base_link(1,0); rot(1,1)=t_base_link(1,1); rot(1,2)=t_base_link(1,2);
   rot(2,0)=t_base_link(2,0); rot(2,1)=t_base_link(2,1); rot(2,2)=t_base_link(2,2);
-  Eigen::Vector3f euler = rot.eulerAngles(2, 1, 0);
+  //Eigen::Vector3f euler = rot.eulerAngles(2, 1, 0);
   //current_pose.roll = euler(2);  
   //current_pose.pitch = euler(1);  
   //current_pose.yaw = euler(0);
@@ -136,8 +166,8 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   std::cout << t_base_link << std::endl;
   std::cout << "rot" << std::endl;
   std::cout << rot << std::endl;
-  std::cout << "euler" << std::endl;
-  std::cout << euler << std::endl;
+  //std::cout << "euler" << std::endl;
+  //std::cout << euler << std::endl;
   
   tf::Matrix3x3 mat_b;
   mat_b.setValue(static_cast<double>(t_base_link(0, 0)), static_cast<double>(t_base_link(0, 1)),
@@ -161,8 +191,8 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   if(shift > _scan_shift)
   {
     // register to a map 
-    pcl::transformPointCloud(*input_cloud_lidar_ptr, input_cloud_global, t_localizer);
-    *_map_ptr += input_cloud_global;
+    pcl::transformPointCloud(*scan_lidar_ptr, scan_global, t_localizer);
+    *_map_ptr += scan_global;
     
     _added_pose.x = current_pose.x;
     _added_pose.y = current_pose.y;
