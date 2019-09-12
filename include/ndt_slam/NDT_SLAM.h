@@ -33,6 +33,7 @@ private:
   // publisher & subscriber
   ros::Subscriber _sub;
   ros::Publisher _map_pub;
+  ros::Publisher _filtered_map_pub;
   
   // transform between base and lidar
   Eigen::Matrix4f _tf_btol, _tf_ltob;
@@ -55,6 +56,12 @@ private:
   double _min_scan_range;
   double _max_scan_range;
   
+  // filter map
+  double _map_filter_size;
+  
+  
+  
+  //
   pcl::PointCloud<pcl::PointXYZI> _previous_scan;
   
   void callback(const sensor_msgs::PointCloud2::ConstPtr& input);

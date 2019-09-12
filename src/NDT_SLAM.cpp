@@ -4,9 +4,10 @@ NDT_SLAM::NDT_SLAM(ros::NodeHandle nh, ros::NodeHandle private_nh)
 {
   // publisher & subscriber
   _map_pub = nh.advertise<sensor_msgs::PointCloud2>("ndt_map", 1);
+  _filtered_map_pub = nh.advertise<sensor_msgs::PointCloud2>("filtered_ndt_map", 1);
   _sub = nh.subscribe("pointcloud", 100000, &NDT_SLAM::callback, this);
 
-  // get transform base(global) coordinate to lidar coordinate
+  // get transform from base(global) coordinate to lidar coordinate
   double x,y,z,roll,pitch,yaw;
   if(!(private_nh.getParam("tf_btol_x", x)) ||
      !(private_nh.getParam("tf_btol_y", y)) ||
@@ -36,7 +37,8 @@ NDT_SLAM::NDT_SLAM(ros::NodeHandle nh, ros::NodeHandle private_nh)
     if(!(private_nh.getParam("voxel_leaf_size", _voxel_leaf_size)) ||
        !(private_nh.getParam("scan_shift", _scan_shift)) ||
        !(private_nh.getParam("min_scan_range", _min_scan_range)) ||
-       !(private_nh.getParam("max_scan_range", _max_scan_range)) 
+       !(private_nh.getParam("max_scan_range", _max_scan_range)) ||
+       !(private_nh.getParam("map_filter_size", _map_filter_size))
        ) 
     ROS_BREAK();
   
@@ -69,7 +71,7 @@ void NDT_SLAM::test_1()
   std::cout << "_voxel_leaf_size : " << _voxel_leaf_size << std::endl;
   std::cout << "_scan_shift : " << _scan_shift << std::endl;
   std::cout << "_is_first_scan : " << _is_first_scan << std::endl;
-  std::cout << "_is_first_map: " << _is_first_map << std::endl;
+
   std::cout << "########################" << std::endl;
 }
 
@@ -107,7 +109,7 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   ros::Time end1 = ros::Time::now();
   ROS_INFO("time1 %f", (end1-start1).toSec());  
     
-  // if this is first map, register it to map directly
+  // first map
   pcl::PointCloud<pcl::PointXYZI>      scan_global;
   if(_is_first_scan == true)
   {
@@ -117,7 +119,7 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
     _is_first_scan = false;
   }
 
-  // voxel grid filter on "input_cloud_lidar"
+  // voxel grid filter 
   pcl::PointCloud<pcl::PointXYZI>::Ptr filtered_scan_lidar_ptr(new pcl::PointCloud<pcl::PointXYZI>());
   voxelGridFilter(scan_lidar_ptr, filtered_scan_lidar_ptr, _voxel_leaf_size);
   
@@ -192,7 +194,7 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   double shift = sqrt(pow(current_pose.x - _added_pose.x, 2.0) + pow(current_pose.y - _added_pose.y, 2.0));
   if(shift > _scan_shift)
   {
-    // register to a map 
+    // map registration
     pcl::transformPointCloud(*scan_lidar_ptr, scan_global, t_localizer);
     *_map_ptr += scan_global;
     
@@ -205,6 +207,16 @@ void NDT_SLAM::callback(const sensor_msgs::PointCloud2::ConstPtr& input)
     
     _previous_scan = scan_global;
   }
+  
+  // filter
+  pcl::PointCloud<pcl::PointXYZI>::Ptr filtered_map_ptr(new pcl::PointCloud<pcl::PointXYZI>());
+  voxelGridFilter(_map_ptr, filtered_map_ptr, _map_filter_size);
+  
+  // publish map
+  sensor_msgs::PointCloud2 filtered_map;
+  pcl::toROSMsg(*filtered_map_ptr, filtered_map);
+  filtered_map.header.frame_id = "map";
+  _filtered_map_pub.publish(filtered_map);
   
   // publish map
   sensor_msgs::PointCloud2 map;
